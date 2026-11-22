@@ -15,16 +15,21 @@ build() { # variant target
 }
 for v in base batch final vocab; do build $v nmtbench2; done
 for v in cnt-base cnt-final; do build $v cntbench; done
+cmake -S "$ROOT/mm" -B "$ROOT/build-mm" -DGGML_DIR="$GGML_DIR" >/dev/null && cmake --build "$ROOT/build-mm" -j "$JOBS" > "$ROOT/build-mm.log" 2>&1 || true
 
 {
   echo "# Machine"
   uname -a
-  (lscpu 2>/dev/null | grep -E "Model name|^CPU\(s\)|Architecture") || sysctl -n machdep.cpu.brand_string hw.ncpu 2>/dev/null || true
+  (lscpu 2>/dev/null | grep -E "Model name|^CPU\(s\)|Architecture|Thread|L2|L3") || sysctl -n machdep.cpu.brand_string hw.ncpu 2>/dev/null || true
   echo
 } > "$OUT/summary.md"
 
 echo "## Weight buffers" >> "$OUT/summary.md"
 for v in base batch final; do echo "$v: $(BUFINFO=1 "$ROOT/bin-$v" "$MODEL" "$IN" "$OUT/b.txt" 0 1 1 2>&1 | grep BUFINFO | tr '\n' ' ')" >> "$OUT/summary.md"; done
+echo >> "$OUT/summary.md"
+if [ -x "$ROOT/build-mm/mmbench" ]; then echo "## Single matmul, plain vs CPU_REPACK" >> "$OUT/summary.md"; "$ROOT/build-mm/mmbench" 200 2>/dev/null >> "$OUT/summary.md"; echo >> "$OUT/summary.md"; fi
+echo "## One thread, beam 1 and 4 ($CN sentences)" >> "$OUT/summary.md"
+for B in 1 4; do for v in base batch final; do echo "NT=1 beam=$B $v: $(NT=1 "$ROOT/bin-$v" "$MODEL" "$IN" "$OUT/t1.txt" 0 $B $CN 2>&1 | grep RESULT)" >> "$OUT/summary.md"; done; done
 echo >> "$OUT/summary.md"
 echo "## Work counters ($CN sentences, CPU)" >> "$OUT/summary.md"
 for B in 2 4 8; do

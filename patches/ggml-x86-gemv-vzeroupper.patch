@@ -1,0 +1,24 @@
+--- a/ggml/src/ggml-cpu/arch/x86/repack.cpp	2026-11-22 18:19:39
++++ b/ggml/src/ggml-cpu/arch/x86/repack.cpp	2026-11-22 18:19:39
+@@ -1453,6 +1453,10 @@
+         signextendlut = _mm256_permute2f128_si256(signextendlut, signextendlut, 0);
+ 
+         gemv_q4_b32_8x8_q8_0_lut_avx<block_q4_0x8>(n, s, bs, vx, vy, nr, nc, signextendlut);
++        // The kernel takes a 256-bit argument, so the compiler emits no vzeroupper
++        // on its exit; clear the upper halves here to avoid AVX-SSE transition
++        // penalties in SSE code that runs next on this thread.
++        _mm256_zeroupper();
+ 
+         return;
+     }
+@@ -1690,6 +1694,10 @@
+     signextendlut = _mm256_permute2f128_si256(signextendlut, signextendlut, 0);
+ 
+     gemv_q4_b32_8x8_q8_0_lut_avx<block_iq4_nlx8>(n, s, bs, vx, vy, nr, nc, signextendlut);
++    // The kernel takes a 256-bit argument, so the compiler emits no vzeroupper
++    // on its exit; clear the upper halves here to avoid AVX-SSE transition
++    // penalties in SSE code that runs next on this thread.
++    _mm256_zeroupper();
+ 
+     return;
+ #endif

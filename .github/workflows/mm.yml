@@ -3,6 +3,9 @@ name: mmbench
 on:
   workflow_dispatch:
     inputs:
+      ggml_patch:
+        description: patch file under patches/ to apply to ggml, or none
+        default: none
       machines:
         description: JSON list of runner labels
         default: '["ubuntu-24.04"]'
@@ -29,6 +32,7 @@ jobs:
           git init -q fabric
           git -C fabric fetch -q --depth 1 https://github.com/tetherto/qvac-fabric-llm.cpp 72f6dfa65c04401ea68d9414488e2af8d00545a9
           git -C fabric checkout -q FETCH_HEAD
+          if [ "${{ inputs.ggml_patch || 'none' }}" != none ]; then git -C fabric apply "$PWD/patches/${{ inputs.ggml_patch }}" && echo "applied ${{ inputs.ggml_patch }}"; fi
       - name: machine
         run: |
           lscpu | grep -E "Model name|^CPU\(s\)" | tee mm.md

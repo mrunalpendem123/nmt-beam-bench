@@ -1,0 +1,52 @@
+name: mmbench
+
+on:
+  workflow_dispatch:
+    inputs:
+      machines:
+        description: JSON list of runner labels
+        default: '["ubuntu-24.04"]'
+      reps:
+        description: JSON list, one job per entry per machine
+        default: '[1,2,3,4]'
+
+permissions:
+  contents: read
+
+jobs:
+  mm:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.machines || '["ubuntu-24.04"]') }}
+        rep: ${{ fromJSON(inputs.reps || '[1,2,3,4]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: ggml source (tetherto/qvac-fabric-llm.cpp at the commit used locally)
+        run: |
+          git init -q fabric
+          git -C fabric fetch -q --depth 1 https://github.com/tetherto/qvac-fabric-llm.cpp 72f6dfa65c04401ea68d9414488e2af8d00545a9
+          git -C fabric checkout -q FETCH_HEAD
+      - name: machine
+        run: |
+          lscpu | grep -E "Model name|^CPU\(s\)" | tee mm.md
+          for f in avx2 avx512f avx512_vnni avx_vnni amx_int8; do grep -qw $f /proc/cpuinfo && echo -n "$f "; done | tee -a mm.md; echo | tee -a mm.md
+      - name: native build
+        run: |
+          cmake -S mm -B b-native -DGGML_DIR=$PWD/fabric/ggml -DGGML_NATIVE=ON >/dev/null
+          cmake --build b-native -j 4 >/dev/null
+          echo -e "\n## native build" >> mm.md
+          ./b-native/mmbench 200 2>/dev/null | tee -a mm.md
+      - name: AVX2-only build
+        run: |
+          cmake -S mm -B b-avx2 -DGGML_DIR=$PWD/fabric/ggml -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON >/dev/null
+          cmake --build b-avx2 -j 4 >/dev/null
+          echo -e "\n## AVX2-only build" >> mm.md
+          ./b-avx2/mmbench 200 2>/dev/null | tee -a mm.md
+      - run: cat mm.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mm-${{ matrix.os }}-${{ matrix.rep }}
+          path: mm.md

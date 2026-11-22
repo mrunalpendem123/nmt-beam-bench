@@ -28,6 +28,15 @@ echo "## Weight buffers" >> "$OUT/summary.md"
 for v in base batch final; do echo "$v: $(BUFINFO=1 "$ROOT/bin-$v" "$MODEL" "$IN" "$OUT/b.txt" 0 1 1 2>&1 | grep BUFINFO | tr '\n' ' ')" >> "$OUT/summary.md"; done
 echo >> "$OUT/summary.md"
 if [ -x "$ROOT/build-mm/mmbench" ]; then echo "## Single matmul, plain vs CPU_REPACK" >> "$OUT/summary.md"; "$ROOT/build-mm/mmbench" 200 2>/dev/null >> "$OUT/summary.md"; echo >> "$OUT/summary.md"; fi
+if [ -n "${PERF:-}" ] && command -v perf >/dev/null; then
+  echo "## perf (beam 1, 10 sentences)" >> "$OUT/summary.md"
+  for v in base final; do
+    echo "### $v" >> "$OUT/summary.md"
+    perf record -g -o "$OUT/perf-$v.data" "$ROOT/bin-$v" "$MODEL" "$IN" "$OUT/p.txt" 0 1 10 2>&1 | grep RESULT >> "$OUT/summary.md" || true
+    perf report -i "$OUT/perf-$v.data" --stdio --no-children --sort dso,symbol 2>/dev/null | grep -E "^ +[0-9]" | head -25 >> "$OUT/summary.md" || true
+  done
+  echo >> "$OUT/summary.md"
+fi
 echo "## Per-operation profile (10 sentences, nodes computed one at a time)" >> "$OUT/summary.md"
 for B in 1 4; do for v in base final; do echo "### beam=$B $v" >> "$OUT/summary.md"; PROF=1 "$ROOT/bin-$v" "$MODEL" "$IN" "$OUT/p.txt" 0 $B 10 2>&1 | grep -E "^PROF|RESULT" >> "$OUT/summary.md"; done; done
 echo >> "$OUT/summary.md"

@@ -45,7 +45,11 @@ jobs:
 
       - name: deps (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -q && sudo apt-get install -y -q cmake
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q cmake
+          sudo apt-get install -y -q linux-tools-common "linux-tools-$(uname -r)" || sudo apt-get install -y -q linux-tools-azure || true
+          sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0 || true
+          perf --version || true
 
       - name: deps (macOS)
         if: runner.os == 'macOS'
@@ -79,6 +83,7 @@ jobs:
       - name: run (Linux / macOS)
         if: runner.os != 'Windows'
         run: |
+          export PERF=1
           python3 -m pip install -q --break-system-packages sacrebleu || python3 -m pip install -q sacrebleu
           ./run.sh "$PWD/fabric/ggml" "$PWD/model/ggml-indictrans2-en-indic-dist-200M-q4_0.bin" "results/${{ matrix.os }}-${{ matrix.rep }}" "${{ inputs.n_time || '200' }}" "${{ inputs.rounds || '3' }}" "${{ inputs.n_quality || '1012' }}"
 

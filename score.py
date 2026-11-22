@@ -1,7 +1,7 @@
 # usage: score.py REF HYP_A [HYP_B]  -> BLEU/chrF++ per system, and A vs B agreement
 import sys, sacrebleu, statistics
 ref = open(sys.argv[1], encoding='utf-8').read().rstrip('\n').split('\n')
-hyps = [open(p).read().rstrip('\n').split('\n') for p in sys.argv[2:]]
+hyps = [open(p, encoding='utf-8').read().rstrip('\n').split('\n') for p in sys.argv[2:]]
 for p, h in zip(sys.argv[2:], hyps):
     r = ref[:len(h)]
     bleu = sacrebleu.corpus_bleu(h, [r]); chrf = sacrebleu.corpus_chrf(h, [r], word_order=2)

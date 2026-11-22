@@ -32,5 +32,7 @@ foreach(t nmtbench2 cntbench)
   target_link_libraries(${t} PRIVATE ggml sentencepiece-static)
   if(WIN32)
     target_link_libraries(${t} PRIVATE psapi)
+    # <windows.h> defines ERROR (wingdi.h), which clashes with Priority::ERROR
+    target_compile_definitions(${t} PRIVATE NOGDI WIN32_LEAN_AND_MEAN NOMINMAX)
   endif()
 endforeach()

@@ -9,6 +9,9 @@ on:
       rounds:
         description: interleaved timing rounds
         default: "3"
+      n_quality:
+        description: sentences for the quality comparison (1012 = all)
+        default: "1012"
 
 permissions:
   contents: read
@@ -61,14 +64,14 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           python3 -m pip install -q --break-system-packages sacrebleu || python3 -m pip install -q sacrebleu
-          ./run.sh "$PWD/fabric/ggml" "$PWD/model/ggml-indictrans2-en-indic-dist-200M-q4_0.bin" "results/${{ matrix.os }}" "${{ inputs.n_time || '200' }}" "${{ inputs.rounds || '3' }}"
+          ./run.sh "$PWD/fabric/ggml" "$PWD/model/ggml-indictrans2-en-indic-dist-200M-q4_0.bin" "results/${{ matrix.os }}" "${{ inputs.n_time || '200' }}" "${{ inputs.rounds || '3' }}" "${{ inputs.n_quality || '1012' }}"
 
       - name: run (Windows, MSYS2 UCRT64)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           python -m pip install -q --break-system-packages sacrebleu || python -m pip install -q sacrebleu
-          ./run.sh "$PWD/fabric/ggml" "$PWD/model/ggml-indictrans2-en-indic-dist-200M-q4_0.bin" "results/${{ matrix.os }}" "${{ inputs.n_time || '200' }}" "${{ inputs.rounds || '3' }}"
+          ./run.sh "$PWD/fabric/ggml" "$PWD/model/ggml-indictrans2-en-indic-dist-200M-q4_0.bin" "results/${{ matrix.os }}" "${{ inputs.n_time || '200' }}" "${{ inputs.rounds || '3' }}" "${{ inputs.n_quality || '1012' }}"
 
       - name: job summary
         if: always()

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build every variant, then measure work counters, quality and time.
-# usage: run.sh GGML_DIR MODEL OUT_DIR [N_TIME=200] [ROUNDS=3]
+# usage: run.sh GGML_DIR MODEL OUT_DIR [N_TIME=200] [ROUNDS=3] [N_QUALITY=1012]
 set -euo pipefail
-GGML_DIR=$1; MODEL=$2; OUT=$3; N=${4:-200}; ROUNDS=${5:-3}
+GGML_DIR=$1; MODEL=$2; OUT=$3; N=${4:-200}; ROUNDS=${5:-3}; QN=${6:-1012}; CN=$(( QN < 100 ? QN : 100 ))
 ROOT=$(cd "$(dirname "$0")" && pwd)
 IN=$ROOT/data/eng_Latn.devtest; REF=$ROOT/data/hin_Deva.devtest
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -23,17 +23,17 @@ for v in cnt-base cnt-final; do build $v cntbench; done
   echo
 } > "$OUT/summary.md"
 
-echo "## Work counters (100 sentences, CPU)" >> "$OUT/summary.md"
+echo "## Work counters ($CN sentences, CPU)" >> "$OUT/summary.md"
 for B in 2 4 8; do
   for v in cnt-base cnt-final; do
-    echo "beam=$B $v: $("$ROOT/bin-$v" "$MODEL" "$IN" "$OUT/cnt-$v-b$B.txt" 0 $B 100 2>&1 | grep COUNTERS)" >> "$OUT/summary.md"
+    echo "beam=$B $v: $("$ROOT/bin-$v" "$MODEL" "$IN" "$OUT/cnt-$v-b$B.txt" 0 $B $CN 2>&1 | grep COUNTERS)" >> "$OUT/summary.md"
   done
 done
 
-echo -e "\n## Quality (all 1012 FLORES devtest sentences, beam 4)" >> "$OUT/summary.md"
-"$ROOT/bin-base"  "$MODEL" "$IN" "$OUT/q-base.txt"  0 4 2>&1 | grep RESULT >> "$OUT/summary.md"
-"$ROOT/bin-final" "$MODEL" "$IN" "$OUT/q-final.txt" 0 4 2>&1 | grep RESULT >> "$OUT/summary.md"
-NMT_VOCAB=$ROOT/data/vocab_hin_K3.txt "$ROOT/bin-vocab" "$MODEL" "$IN" "$OUT/q-vocab.txt" 0 4 2>&1 | grep RESULT >> "$OUT/summary.md"
+echo -e "\n## Quality ($QN FLORES devtest sentences, beam 4)" >> "$OUT/summary.md"
+"$ROOT/bin-base"  "$MODEL" "$IN" "$OUT/q-base.txt"  0 4 $QN 2>&1 | grep RESULT >> "$OUT/summary.md"
+"$ROOT/bin-final" "$MODEL" "$IN" "$OUT/q-final.txt" 0 4 $QN 2>&1 | grep RESULT >> "$OUT/summary.md"
+NMT_VOCAB=$ROOT/data/vocab_hin_K3.txt "$ROOT/bin-vocab" "$MODEL" "$IN" "$OUT/q-vocab.txt" 0 4 $QN 2>&1 | grep RESULT >> "$OUT/summary.md"
 python3 "$ROOT/score.py" "$REF" "$OUT/q-base.txt" "$OUT/q-final.txt" | grep -v "first diff\|A:\|B:" >> "$OUT/summary.md"
 python3 "$ROOT/score.py" "$REF" "$OUT/q-final.txt" "$OUT/q-vocab.txt" | grep -v "first diff\|A:\|B:" >> "$OUT/summary.md"
 

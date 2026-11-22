@@ -39,6 +39,8 @@ jobs:
           cmake --build b-native -j 4 >/dev/null
           echo -e "\n## native build" >> mm.md
           ./b-native/mmbench 200 2>/dev/null | tee -a mm.md
+          echo -e "\n## functions using ymm/zmm with no vzeroupper (native build, repack/quant related)" >> mm.md
+          objdump -d -C --no-show-raw-insn b-native/mmbench | python3 mm/vzu.py 'gemv|gemm|quantize_mat|repack|forward_mul_mat|vec_dot|compute_forward' | tee -a mm.md
       - name: AVX2-only build
         run: |
           cmake -S mm -B b-avx2 -DGGML_DIR=$PWD/fabric/ggml -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON >/dev/null

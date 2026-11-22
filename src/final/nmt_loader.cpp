@@ -181,12 +181,7 @@ static buft_list_t make_buft_list(const nmt_context_params& params) {
   if (get_extra_bufts_fn) {
     ggml_backend_buffer_type_t* extra_bufts = get_extra_bufts_fn(cpu_dev);
     while (extra_bufts && *extra_bufts) {
-      // AMX tiles pay off for large batches; decoding here multiplies at most
-      // a few rows per step (one per beam), where AMX was measured slower
-      // than the CPU_REPACK kernels, so leave it out.
-      if (std::string(ggml_backend_buft_name(*extra_bufts)) != "AMX") {
-        buft_list.emplace_back(cpu_dev, *extra_bufts);
-      }
+      buft_list.emplace_back(cpu_dev, *extra_bufts);
       ++extra_bufts;
     }
   }
@@ -628,19 +623,23 @@ static bool nmt_model_load(struct nmt_model_loader* loader, nmt_context& ctx) {
       layer.attn_ln_0_b = ggml_dup_tensor(
           nmt_ctx, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_text_state));
       layer.attn_q_w = ggml_dup_tensor(
-          nmt_ctx_mat, ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
+          nmt_ctx_mat,
+          ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
       layer.attn_q_b = ggml_dup_tensor(
           nmt_ctx, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_text_state));
       layer.attn_k_w = ggml_dup_tensor(
-          nmt_ctx_mat, ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
+          nmt_ctx_mat,
+          ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
       layer.attn_k_b = ggml_dup_tensor(
           nmt_ctx, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_text_state));
       layer.attn_v_w = ggml_dup_tensor(
-          nmt_ctx_mat, ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
+          nmt_ctx_mat,
+          ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
       layer.attn_v_b = ggml_dup_tensor(
           nmt_ctx, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_text_state));
       layer.attn_ln_1_w = ggml_dup_tensor(
-          nmt_ctx_mat, ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
+          nmt_ctx_mat,
+          ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
       layer.attn_ln_1_b = ggml_dup_tensor(
           nmt_ctx, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_text_state));
 
@@ -650,19 +649,23 @@ static bool nmt_model_load(struct nmt_model_loader* loader, nmt_context& ctx) {
       layer.cross_attn_ln_0_b = ggml_dup_tensor(
           nmt_ctx, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_text_state));
       layer.cross_attn_q_w = ggml_dup_tensor(
-          nmt_ctx_mat, ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
+          nmt_ctx_mat,
+          ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
       layer.cross_attn_q_b = ggml_dup_tensor(
           nmt_ctx, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_text_state));
       layer.cross_attn_k_w = ggml_dup_tensor(
-          nmt_ctx_mat, ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
+          nmt_ctx_mat,
+          ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
       layer.cross_attn_k_b = ggml_dup_tensor(
           nmt_ctx, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_text_state));
       layer.cross_attn_v_w = ggml_dup_tensor(
-          nmt_ctx_mat, ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
+          nmt_ctx_mat,
+          ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
       layer.cross_attn_v_b = ggml_dup_tensor(
           nmt_ctx, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_text_state));
       layer.cross_attn_ln_1_w = ggml_dup_tensor(
-          nmt_ctx_mat, ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
+          nmt_ctx_mat,
+          ggml_new_tensor_2d(ctx, wtype, n_text_state, n_text_state));
       layer.cross_attn_ln_1_b = ggml_dup_tensor(
           nmt_ctx, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_text_state));
 
@@ -810,8 +813,8 @@ static bool nmt_model_load(struct nmt_model_loader* loader, nmt_context& ctx) {
     // A model without its own output projection reuses the decoder
     // embeddings; a separate copy only pays off when the multiplication has a
     // faster buffer (such as CPU_REPACK) than the one the embeddings are in.
-    ggml_backend_buffer_type_t lm_head_buft = select_weight_buft(
-        hparams, meta_lm_head, GGML_OP_MUL_MAT, buft_list);
+    ggml_backend_buffer_type_t lm_head_buft =
+        select_weight_buft(hparams, meta_lm_head, GGML_OP_MUL_MAT, buft_list);
     if (model.type == MODEL_INDICTRANS && !hparams.has_lm_head &&
         lm_head_buft == buft) {
       model.m_lm_head_w = nullptr;

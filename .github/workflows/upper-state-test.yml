@@ -16,9 +16,15 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-2022]
+        cc: [default]
+        include:
+          - { os: ubuntu-24.04, branch: temp-11739, rep: 1, cc: clang }
+          - { os: ubuntu-24.04, branch: temp-12032, rep: 1, cc: clang }
         branch: [temp-11739, temp-12032]
         rep: ${{ fromJSON(inputs.reps || '[1,2,3]') }}
     runs-on: ${{ matrix.os }}
+    env:
+      CCARGS: ${{ matrix.cc == 'clang' && '-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++' || '' }}
     defaults:
       run:
         shell: bash
@@ -40,13 +46,13 @@ jobs:
           git -C fabric-fixed apply "$PWD/patches/$p-fix-and-test.patch"
       - name: build and run (test only, expect FAIL on x86 with AVX2)
         run: |
-          cmake -S fabric -B b0 -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=ON -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF > /dev/null
+          cmake -S fabric -B b0 $CCARGS -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=ON -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF > /dev/null
           cmake --build b0 --config Release --target test-repack-upper-state -j 4 > b0.log 2>&1 || { tail -50 b0.log; exit 1; }
           exe=$(find b0 -name 'test-repack-upper-state*' -type f \( -name '*.exe' -o -perm -u+x \) | head -1)
           set +e; "$exe"; echo "exit code: $? (expect 1)"
       - name: build and run (fix + test, expect OK)
         run: |
-          cmake -S fabric-fixed -B b1 -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=ON -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF > /dev/null
+          cmake -S fabric-fixed -B b1 $CCARGS -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=ON -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF > /dev/null
           cmake --build b1 --config Release --target test-repack-upper-state -j 4 > b1.log 2>&1 || { tail -50 b1.log; exit 1; }
           exe=$(find b1 -name 'test-repack-upper-state*' -type f \( -name '*.exe' -o -perm -u+x \) | head -1)
           "$exe"

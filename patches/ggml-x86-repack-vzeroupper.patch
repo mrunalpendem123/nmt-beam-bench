@@ -1,0 +1,68 @@
+--- a/ggml/src/ggml-cpu/arch/x86/repack.cpp	2026-11-22 18:19:39
++++ b/ggml/src/ggml-cpu/arch/x86/repack.cpp	2026-11-22 19:37:28
+@@ -1453,6 +1453,10 @@
+         signextendlut = _mm256_permute2f128_si256(signextendlut, signextendlut, 0);
+ 
+         gemv_q4_b32_8x8_q8_0_lut_avx<block_q4_0x8>(n, s, bs, vx, vy, nr, nc, signextendlut);
++        // The kernel takes the LUT as a 256-bit argument, so the compiler emits no
++        // vzeroupper on its exit. Clear the upper halves here: dirty upper state
++        // makes later SSE code on this thread (e.g. libm exp) much slower on Intel.
++        _mm256_zeroupper();
+ 
+         return;
+     }
+@@ -1690,6 +1694,10 @@
+     signextendlut = _mm256_permute2f128_si256(signextendlut, signextendlut, 0);
+ 
+     gemv_q4_b32_8x8_q8_0_lut_avx<block_iq4_nlx8>(n, s, bs, vx, vy, nr, nc, signextendlut);
++    // The kernel takes the LUT as a 256-bit argument, so the compiler emits no
++    // vzeroupper on its exit. Clear the upper halves here: dirty upper state
++    // makes later SSE code on this thread (e.g. libm exp) much slower on Intel.
++    _mm256_zeroupper();
+ 
+     return;
+ #endif
+@@ -1703,6 +1711,10 @@
+     signextendlut = _mm256_permute2f128_si256(signextendlut, signextendlut, 0);
+ 
+     gemv_q4_b32_8x8_q8_0_lut_avx<block_mxfp4x8>(n, s, bs, vx, vy, nr, nc, signextendlut);
++    // The kernel takes the LUT as a 256-bit argument, so the compiler emits no
++    // vzeroupper on its exit. Clear the upper halves here: dirty upper state
++    // makes later SSE code on this thread (e.g. libm exp) much slower on Intel.
++    _mm256_zeroupper();
+ 
+     return;
+ #endif
+@@ -2031,6 +2043,10 @@
+         signextendlut = _mm256_permute2f128_si256(signextendlut, signextendlut, 0);
+ 
+         gemm_q4_b32_8x8_q8_0_lut_avx<block_q4_0x8>(n, s, bs, vx, vy, nr, nc, signextendlut);
++        // The kernel takes the LUT as a 256-bit argument, so the compiler emits no
++        // vzeroupper on its exit. Clear the upper halves here: dirty upper state
++        // makes later SSE code on this thread (e.g. libm exp) much slower on Intel.
++        _mm256_zeroupper();
+ 
+         return;
+     }
+@@ -3500,6 +3516,10 @@
+         signextendlut = _mm256_permute2f128_si256(signextendlut, signextendlut, 0);
+ 
+         gemm_q4_b32_8x8_q8_0_lut_avx<block_iq4_nlx8>(n, s, bs, vx, vy, nr, nc, signextendlut);
++        // The kernel takes the LUT as a 256-bit argument, so the compiler emits no
++        // vzeroupper on its exit. Clear the upper halves here: dirty upper state
++        // makes later SSE code on this thread (e.g. libm exp) much slower on Intel.
++        _mm256_zeroupper();
+ 
+         return;
+     }
+@@ -3515,6 +3535,10 @@
+         signextendlut = _mm256_permute2f128_si256(signextendlut, signextendlut, 0);
+ 
+         gemm_q4_b32_8x8_q8_0_lut_avx<block_mxfp4x8>(n, s, bs, vx, vy, nr, nc, signextendlut);
++        // The kernel takes the LUT as a 256-bit argument, so the compiler emits no
++        // vzeroupper on its exit. Clear the upper halves here: dirty upper state
++        // makes later SSE code on this thread (e.g. libm exp) much slower on Intel.
++        _mm256_zeroupper();
+ 
+         return;
+     }

@@ -16,6 +16,7 @@
 #include <cmath>
 #if defined(__x86_64__)
 #include <immintrin.h>
+__attribute__((target("avx"))) static void zero_upper() { _mm256_zeroupper(); }
 #endif
 
 // After one multiply, time a double-precision log-sum-exp over its output on this thread
@@ -48,7 +49,7 @@ static void exp_after(ggml_backend_t be, ggml_backend_buffer_type_t wbuft, const
       ggml_backend_tensor_get(y, lg.data(), 0, M * 4);
       auto t1 = std::chrono::steady_clock::now();
 #if defined(__x86_64__)
-      if (mode == 1) _mm256_zeroupper();
+      if (mode == 1) zero_upper();
 #endif
       double mx = *std::max_element(lg.begin(), lg.end()), sum = 0;
       for (int i = 0; i < M; ++i) sum += std::exp((double) lg[i] - mx);

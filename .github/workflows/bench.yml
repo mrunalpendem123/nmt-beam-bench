@@ -12,6 +12,12 @@ on:
       n_quality:
         description: sentences for the quality comparison (1012 = all)
         default: "1012"
+      machines:
+        description: JSON list of runner labels
+        default: '["ubuntu-24.04","ubuntu-24.04-arm","macos-latest","windows-2022"]'
+      reps:
+        description: JSON list, one job per entry per machine
+        default: '[1]'
 
 permissions:
   contents: read
@@ -21,7 +27,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-latest, windows-2022]
+        os: ${{ fromJSON(inputs.machines || '["ubuntu-24.04","ubuntu-24.04-arm","macos-latest","windows-2022"]') }}
+        rep: ${{ fromJSON(inputs.reps || '[1]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 300
     defaults:
@@ -73,7 +80,7 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           python3 -m pip install -q --break-system-packages sacrebleu || python3 -m pip install -q sacrebleu
-          ./run.sh "$PWD/fabric/ggml" "$PWD/model/ggml-indictrans2-en-indic-dist-200M-q4_0.bin" "results/${{ matrix.os }}" "${{ inputs.n_time || '200' }}" "${{ inputs.rounds || '3' }}" "${{ inputs.n_quality || '1012' }}"
+          ./run.sh "$PWD/fabric/ggml" "$PWD/model/ggml-indictrans2-en-indic-dist-200M-q4_0.bin" "results/${{ matrix.os }}-${{ matrix.rep }}" "${{ inputs.n_time || '200' }}" "${{ inputs.rounds || '3' }}" "${{ inputs.n_quality || '1012' }}"
 
       - name: run (Windows, MSYS2 UCRT64)
         if: runner.os == 'Windows'
@@ -81,16 +88,17 @@ jobs:
         env:
           PYTHON: ${{ steps.py.outputs.python-path }}
           CMAKE_GENERATOR: Ninja
+          PYTHONUTF8: "1"
         run: |
           export PYTHON="$(cygpath -u "$PYTHON")"
-          ./run.sh "$PWD/fabric/ggml" "$PWD/model/ggml-indictrans2-en-indic-dist-200M-q4_0.bin" "results/${{ matrix.os }}" "${{ inputs.n_time || '200' }}" "${{ inputs.rounds || '3' }}" "${{ inputs.n_quality || '1012' }}"
+          ./run.sh "$PWD/fabric/ggml" "$PWD/model/ggml-indictrans2-en-indic-dist-200M-q4_0.bin" "results/${{ matrix.os }}-${{ matrix.rep }}" "${{ inputs.n_time || '200' }}" "${{ inputs.rounds || '3' }}" "${{ inputs.n_quality || '1012' }}"
 
       - name: job summary
         if: always()
-        run: cat "results/${{ matrix.os }}/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
+        run: cat "results/${{ matrix.os }}-${{ matrix.rep }}/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: results-${{ matrix.os }}
-          path: results/${{ matrix.os }}
+          name: results-${{ matrix.os }}-${{ matrix.rep }}
+          path: results/${{ matrix.os }}-${{ matrix.rep }}

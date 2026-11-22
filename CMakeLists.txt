@@ -15,6 +15,7 @@ add_subdirectory(${GGML_DIR} ggml)
 set(NMT ${NMT_SRC})
 file(GLOB NMT_CPP ${NMT}/nmt*.cpp)
 # sentencepiece built from source, the same way on every OS
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 include(FetchContent)
 set(SPM_ENABLE_SHARED OFF CACHE BOOL "" FORCE)
 set(SPM_BUILD_TEST OFF CACHE BOOL "" FORCE)

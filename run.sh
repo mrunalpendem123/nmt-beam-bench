@@ -11,7 +11,7 @@ JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 build() { # variant target
   cmake -S "$ROOT" -B "$ROOT/build-$1" -DGGML_DIR="$GGML_DIR" -DNMT_SRC="$ROOT/src/$1" >/dev/null
   cmake --build "$ROOT/build-$1" --target "$2" -j "$JOBS" >/dev/null
-  cp "$ROOT/build-$1/$2" "$ROOT/bin-$1"
+  if [ -f "$ROOT/build-$1/$2.exe" ]; then cp "$ROOT/build-$1/$2.exe" "$ROOT/bin-$1.exe"; else cp "$ROOT/build-$1/$2" "$ROOT/bin-$1"; fi
 }
 for v in base final vocab; do build $v nmtbench2; done
 for v in cnt-base cnt-final; do build $v cntbench; done
@@ -34,8 +34,8 @@ echo -e "\n## Quality ($QN FLORES devtest sentences, beam 4)" >> "$OUT/summary.m
 "$ROOT/bin-base"  "$MODEL" "$IN" "$OUT/q-base.txt"  0 4 $QN 2>&1 | grep RESULT >> "$OUT/summary.md"
 "$ROOT/bin-final" "$MODEL" "$IN" "$OUT/q-final.txt" 0 4 $QN 2>&1 | grep RESULT >> "$OUT/summary.md"
 NMT_VOCAB=$ROOT/data/vocab_hin_K3.txt "$ROOT/bin-vocab" "$MODEL" "$IN" "$OUT/q-vocab.txt" 0 4 $QN 2>&1 | grep RESULT >> "$OUT/summary.md"
-python3 "$ROOT/score.py" "$REF" "$OUT/q-base.txt" "$OUT/q-final.txt" | grep -v "first diff\|A:\|B:" >> "$OUT/summary.md"
-python3 "$ROOT/score.py" "$REF" "$OUT/q-final.txt" "$OUT/q-vocab.txt" | grep -v "first diff\|A:\|B:" >> "$OUT/summary.md"
+"${PYTHON:-python3}" "$ROOT/score.py" "$REF" "$OUT/q-base.txt" "$OUT/q-final.txt" | grep -v "first diff\|A:\|B:" >> "$OUT/summary.md"
+"${PYTHON:-python3}" "$ROOT/score.py" "$REF" "$OUT/q-final.txt" "$OUT/q-vocab.txt" | grep -v "first diff\|A:\|B:" >> "$OUT/summary.md"
 
 echo -e "\n## Time ($N sentences per run, $ROUNDS interleaved rounds, CPU, default threads)" >> "$OUT/summary.md"
 for r in $(seq 1 "$ROUNDS"); do

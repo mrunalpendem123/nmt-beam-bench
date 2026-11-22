@@ -1,18 +1,19 @@
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 4865c4448..ad0030f51 100644
+index 4865c4448..1d4b5d97f 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -758,6 +758,7 @@ if (NOT GGML_BACKEND_DL AND GGML_CPU)
+@@ -758,6 +758,8 @@ if (NOT GGML_BACKEND_DL AND GGML_CPU)
      llama_build_and_test(test-graph-leaves.cpp LINK ggml)
      llama_build_and_test(test-col2im-1d.cpp LINK ggml)
      llama_build_and_test(test-conv-1d.cpp LINK ggml)
 +    llama_build_and_test(test-repack-upper-state.cpp LINK ggml)
++    set_tests_properties(test-repack-upper-state PROPERTIES SKIP_RETURN_CODE 77)
  endif()
  
  # libmtmd
 diff --git a/tests/test-repack-upper-state.cpp b/tests/test-repack-upper-state.cpp
 new file mode 100644
-index 000000000..610f5982d
+index 000000000..c87893146
 --- /dev/null
 +++ b/tests/test-repack-upper-state.cpp
 @@ -0,0 +1,165 @@
@@ -141,14 +142,14 @@ index 000000000..610f5982d
 +int main() {
 +    if (!xinuse_supported()) {
 +        printf("skip: XGETBV with ECX=1 is not supported\n");
-+        return 0;
++        return 77;
 +    }
 +
 +    ggml_backend_dev_t dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
 +    ggml_backend_buffer_type_t repack_buft = dev ? find_repack_buft(dev) : nullptr;
 +    if (!repack_buft) {
 +        printf("skip: no CPU_REPACK buffer type\n");
-+        return 0;
++        return 77;
 +    }
 +
 +    ggml_backend_t backend = ggml_backend_dev_init(dev, nullptr);
@@ -177,7 +178,7 @@ index 000000000..610f5982d
 +
 +int main() {
 +    printf("skip: not x86-64\n");
-+    return 0;
++    return 77;
 +}
 +
 +#endif

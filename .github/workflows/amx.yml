@@ -1,0 +1,41 @@
+name: amx
+
+on:
+  workflow_dispatch:
+    inputs:
+      ggml_patch:
+        default: ggml-x86-repack-vzeroupper.patch
+      reps:
+        default: '[1,2,3,4,5,6]'
+
+permissions:
+  contents: read
+
+jobs:
+  amx:
+    strategy:
+      fail-fast: false
+      matrix:
+        rep: ${{ fromJSON(inputs.reps || '[1,2,3,4,5,6]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: ggml source
+        run: |
+          git init -q fabric
+          for i in 1 2 3 4 5; do git -C fabric fetch -q --depth 1 https://github.com/tetherto/qvac-fabric-llm.cpp 72f6dfa65c04401ea68d9414488e2af8d00545a9 && break; sleep $((i*10)); done
+          git -C fabric checkout -q FETCH_HEAD
+          if [ "${{ inputs.ggml_patch }}" != none ]; then git -C fabric apply "$PWD/patches/${{ inputs.ggml_patch }}"; fi
+      - name: model
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download model -p '*.bin' -D model -R ${{ github.repository }}
+      - name: run
+        run: ./amx.sh "$PWD/fabric/ggml" "$PWD/model/ggml-indictrans2-en-indic-dist-200M-q4_0.bin" results 200 3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: amx-${{ matrix.rep }}
+          path: results

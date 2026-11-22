@@ -1,0 +1,1255 @@
+#pragma once
+
+#include <atomic>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <exception>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <type_traits>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include <js.h>
+#include <uv.h>
+
+#ifndef NDEBUG
+#include <cassert>
+#endif
+
+#include "AsyncTaskExecutor.hpp"
+#include "Errors.hpp"
+
+static_assert(std::is_same_v<utf8_t, char> || std::is_same_v<utf8_t, unsigned char>,
+  "This library requires utf8_t to be implemented as char or unsigned char.");
+
+static_assert(sizeof(std::uintptr_t) == 8,
+ "This library requires uintptr_t to be implemented with 64 bits.");
+
+#define JSCATCH  catch(const qvac_errors::StatusError& e) { \
+  if (!e.isJSError()) js_throw_error(env, e.codeString().c_str(), e.what()); \
+  return nullptr; \
+} catch(const std::exception& e) { \
+  js_throw_error(env, "INTERNAL_ERROR", e.what()); \
+  return nullptr; \
+} catch(...) { \
+  js_throw_error(env, "INTERNAL_ERROR", "Unknown error"); \
+  return nullptr; \
+}
+
+#define JS( jscall ) if ( jscall != 0 ) throw qvac_errors::StatusError(qvac_errors::general_error::JSLibraryError, "");
+
+namespace qvac_lib_inference_addon_cpp::js {
+
+constexpr std::string_view typeName(js_value_type_t type) {
+  switch (type) {
+    case js_undefined: return "undefined";
+    case js_null: return "null";
+    case js_boolean: return "boolean";
+    case js_number: return "number";
+    case js_string: return "string";
+    case js_symbol: return "symbol";
+    case js_object: return "object";
+    case js_function: return "function";
+    case js_external: return "external";
+    case js_bigint: return "bigint";
+  }
+  throw std::logic_error{"invalid js_value_type_t value"};
+}
+
+inline js_value_type_t typeOf(js_env_t* env, js_value_t* value) {
+  js_value_type_t result;
+  JS(js_typeof(env, value, &result));
+  return result;
+}
+
+template <typename JsType>
+bool is(js_env_t* env, js_value_t* value);
+
+struct Undefined;
+struct Null;
+struct Boolean;
+struct String;
+struct Number;
+struct BigInt;
+struct Object;
+struct Array;
+struct External;
+struct Function;
+
+template <typename SubType>
+struct TypedArray;
+
+struct Int32;
+struct Uint32;
+
+struct TypedArrayT;
+
+template <typename JsType>
+bool is(js_env_t* env, js_value_t* value) {
+  bool result;
+  if constexpr (std::is_same_v<JsType, Undefined>) { JS(js_is_undefined(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, Null>) { JS(js_is_null(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, Boolean>) { JS(js_is_boolean(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, String>) { JS(js_is_string(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, Number>) { JS(js_is_number(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, Int32>) { JS(js_is_int32(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, Uint32>) { JS(js_is_uint32(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, BigInt>) { JS(js_is_bigint(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, Object>) { JS(js_is_object(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, Array>) { JS(js_is_array(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, External>) { JS(js_is_external(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, Function>) { JS(js_is_function(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, TypedArrayT>) { JS(js_is_typedarray(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, TypedArray<int8_t>>) { JS(js_is_int8array(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, TypedArray<uint8_t>>) { JS(js_is_uint8array(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, TypedArray<int16_t>>) { JS(js_is_int16array(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, TypedArray<uint16_t>>) { JS(js_is_uint16array(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, TypedArray<int32_t>>) { JS(js_is_int32array(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, TypedArray<uint32_t>>) { JS(js_is_uint32array(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, TypedArray<float>>) { JS(js_is_float32array(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, TypedArray<double>>) { JS(js_is_float64array(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, TypedArray<int64_t>>) { JS(js_is_bigint64array(env, value, &result)); }
+  else if constexpr (std::is_same_v<JsType, TypedArray<uint64_t>>) { JS(js_is_biguint64array(env, value, &result)); }
+  else {
+    static_assert(sizeof(JsType)==0, "Invalid js type");
+  }
+  return result;
+}
+
+template <typename JsType>
+bool is(JsType value) {
+  return value.template is<JsType>();
+}
+
+template <typename CppType, typename JsType>
+auto as(js_env_t* env, JsType value) {
+  return value.template as<CppType>(env);
+}
+
+template <typename JsType>
+struct Value {
+
+  static JsType create(js_env_t* env) {
+    js_value_t* result;
+    JS(JsType::create_(env, &result));
+    return JsType{result};
+  }
+
+  template <typename CppType>
+  static JsType create(js_env_t* env, CppType value) {
+    js_value_t* result;
+    JS(JsType::create_(env, value, &result));
+    return JsType{result};
+  }
+
+  static JsType fromValue(js_value_t* value) {
+    return JsType{value};
+  }
+
+  operator js_value_t*() const { return value_; }
+
+  template <typename OtherType>
+  constexpr bool is() const {
+    if constexpr (std::is_same_v<JsType, OtherType>)
+      return true;
+    else
+      return false;
+  }
+
+  template <typename CppType>
+  CppType as(js_env_t* env) {
+    CppType result;
+    JS(JsType::as_(env, value_, &result));
+    return result;
+  }
+
+protected:
+  js_value_t* value_;
+
+  explicit Value(js_value_t* value) : value_{value} {}
+
+  Value(js_env_t* env, js_value_t* value) : value_{value} {
+    if (!js::is<JsType>(env, value)) {
+      throw qvac_errors::StatusError(qvac_errors::general_error::InvalidArgument, std::string{"Value is not "}.append(JsType::typeName()).data());
+    }
+  }
+
+};
+
+struct Undefined : Value<Undefined> {
+  friend struct Value<Undefined>;
+  Undefined(js_env_t* env, js_value_t* value) : Value<Undefined>{env, value} {}
+
+  static constexpr std::string_view typeName() { return js::typeName(js_undefined); }
+
+protected:
+  explicit Undefined(js_value_t* value) : Value<Undefined>{value} {}
+
+  static int create_(js_env_t* env, js_value_t** result) {
+    return js_get_undefined(env, result);
+  }
+};
+
+struct Null : Value<Null> {
+  friend struct Value<Null>;
+  Null(js_env_t* env, js_value_t* value) : Value<Null>{env, value} {}
+
+  static constexpr std::string_view typeName() { return js::typeName(js_null); }
+
+protected:
+  explicit Null(js_value_t* value) : Value<Null>{value} {}
+
+  static int create_(js_env_t* env, js_value_t** result) {
+    return js_get_null(env, result);
+  }
+};
+
+struct Boolean : Value<Boolean> {
+  friend struct Value<Boolean>;
+  Boolean(js_env_t* env, js_value_t* value) : Value<Boolean>{env, value} {}
+
+  static constexpr std::string_view typeName() { return js::typeName(js_boolean); }
+
+protected:
+  explicit Boolean(js_value_t* value) : Value<Boolean>{value} {}
+
+  static int create_(js_env_t* env, bool value, js_value_t** result) {
+    return js_get_boolean(env, value, result);
+  }
+
+  static int as_(js_env_t* env, js_value_t* value, bool* result) {
+    return js_get_value_bool(env, value, result);
+  }
+
+};
+
+struct String : Value<String> {
+  friend struct Value<String>;
+  String(js_env_t* env, js_value_t* value) : Value<String>{env, value} {}
+
+  static constexpr std::string_view typeName() { return js::typeName(js_string); }
+
+  template <typename CppType>
+  CppType as(js_env_t* env) {
+    if constexpr (std::is_same_v<CppType, std::string>) {
+      size_t length;
+      JS(js_get_value_string_utf8(env, value_, nullptr, 0, &length));
+      std::string result(length, '\0');
+      JS(js_get_value_string_utf8(env, value_, (utf8_t*)result.data(), length, nullptr));
+      return result;
+    } else if constexpr (std::is_same_v<CppType, std::u16string>) {
+      size_t length;
+      JS(js_get_value_string_utf16le(env, value_, nullptr, 0, &length));
+      std::u16string result(length, '\0');
+      JS(js_get_value_string_utf16le(env, value_, (utf16_t*)result.data(), length, nullptr));
+      return result;
+    } else {
+      static_assert(std::is_same_v<CppType, std::string> || std::is_same_v<CppType, std::u16string>,
+                    "Unsupported string type");
+    }
+  }
+
+protected:
+  explicit String(js_value_t* value) : Value<String>{value} {}
+
+  static int create_(js_env_t* env, std::string_view value, js_value_t** result) {
+    return js_create_string_utf8(env, (const utf8_t*)value.data(), value.size(), result);
+  }
+  static int create_(js_env_t* env, std::u16string_view value, js_value_t** result) {
+    return js_create_string_utf16le(env, (const utf16_t*)value.data(), value.size(), result);
+  }
+
+};
+
+struct Number : Value<Number> {
+  friend struct Value<Number>;
+  Number(js_env_t* env, js_value_t* value) : Value<Number>{env, value} {}
+
+  static constexpr std::string_view typeName() { return js::typeName(js_number); }
+
+  using Value<Number>::as;
+
+  template <typename CppType>
+  CppType as(js_env_t* env, bool& lossless) {
+    CppType result;
+    JS(this->as_(env, value_, &result, &lossless));
+    return result;
+  };
+
+  /// Validating parse for untrusted boundary input, unlike as<>() which
+  /// converts with the plain (truncating, range-unchecked) C++ cast.
+  /// Throws InvalidArgument unless the JS number is a finite, non-negative
+  /// integer no larger than 2^53 - 1 (the largest integer a JS double
+  /// represents exactly). Use for numbers that address or size native
+  /// state — job ids, counts, indices — where a truncated or wrapped
+  /// value would silently target the wrong thing.
+  template <typename CppType>
+  CppType asChecked(js_env_t* env) {
+    static_assert(
+        std::is_same_v<CppType, uint64_t>,
+        "asChecked currently supports uint64_t only");
+    const double underlying = as<double>(env);
+    if (!std::isfinite(underlying) || underlying < 0 ||
+        underlying > 9007199254740991.0 /* 2^53 - 1 */ ||
+        std::trunc(underlying) != underlying) {
+      throw qvac_errors::StatusError(
+          qvac_errors::general_error::InvalidArgument,
+          "expected a non-negative integer");
+    }
+    return static_cast<CppType>(underlying);
+  }
+
+protected:
+  explicit Number(js_value_t* value) : Value<Number>{value} {}
+
+  static int create_(js_env_t* env, double value, js_value_t** result) {
+    return createDouble(env, value, result);
+  }
+  static int create_(js_env_t* env, int32_t value, js_value_t** result) {
+    return js_create_int32(env, value, result);
+  }
+  static int create_(js_env_t* env, uint32_t value, js_value_t** result) {
+    return js_create_uint32(env, value, result);
+  }
+  static int create_(js_env_t* env, int64_t value, js_value_t** result) {
+    return js_create_int64(env, value, result);
+  }
+  static int create_(js_env_t* env, uint64_t value, js_value_t** result) {
+    return createDouble(env, static_cast<double>(value), result);
+  }
+
+  static int createDouble(js_env_t* env, double value, js_value_t** result) {
+#if defined(_WIN32)
+    // Work around a Bare/libjs issue observed on GitHub Azure win32-x64
+    // runners where the first js_create_double() in the process can produce
+    // an invalid JS value even though it returns success.
+    // TODO: Remove this burn-once workaround once Bare/libjs ships a fix.
+    static bool hasBurnedDouble = [](js_env_t* env) {
+      js_value_t* burned = nullptr;
+      (void)js_create_double(env, 0, &burned);
+      return true;
+    }(env);
+    (void)hasBurnedDouble;
+#endif
+    return js_create_double(env, value, result);
+  }
+
+  static int as_(js_env_t* env, js_value_t* value, double* result) {
+    return js_get_value_double(env, value, result);
+  }
+  static int as_(js_env_t* env, js_value_t* value, int32_t* result) {
+    return js_get_value_int32(env, value, result);
+  }
+  static int as_(js_env_t* env, js_value_t* value, uint32_t* result) {
+    return js_get_value_uint32(env, value, result);
+  }
+  static int as_(js_env_t* env, js_value_t* value, int64_t* result) {
+    return js_get_value_int64(env, value, result);
+  }
+  /// Truncating cast, no validation: the JS double is static_cast to
+  /// uint64_t as-is. Fractional input truncates (42.9 -> 42); negative,
+  /// non-finite or >= 2^64 input is undefined behaviour per C++
+  /// float-to-unsigned cast rules. Only for values the caller already
+  /// trusts to be in range; parse untrusted boundary input through
+  /// asChecked<uint64_t>() instead.
+  static int as_(js_env_t* env, js_value_t* value, uint64_t* result) {
+    double underlying{};
+    auto ret = js_get_value_double(env, value, &underlying);
+    if (ret == 0) {
+      *result = static_cast<uint64_t>(underlying);
+    }
+    return ret;
+  }
+
+  static int as_(js_env_t* env, js_value_t* value, int64_t* result, bool& lossless) {
+    return js_get_value_bigint_int64(env, value, result, &lossless);
+  }
+  static int as_(js_env_t* env, js_value_t* value, uint64_t* result, bool& lossless) {
+    return js_get_value_bigint_uint64(env, value, result, &lossless);
+  }
+};
+
+struct BigInt : Value<BigInt> {
+  friend struct Value<BigInt>;
+  BigInt(js_env_t* env, js_value_t* value) : Value<BigInt>{env, value} {}
+
+  static constexpr std::string_view typeName() { return js::typeName(js_bigint); }
+
+protected:
+  explicit BigInt(js_value_t* value) : Value<BigInt>{value} {}
+
+  static BigInt create_(js_env_t* env, int64_t value) {
+    js_value_t* result;
+    JS(js_create_bigint_int64(env, value, &result));
+    return BigInt{result};
+  }
+  static BigInt create_(js_env_t* env, uint64_t value) {
+    js_value_t* result;
+    JS(js_create_bigint_uint64(env, value, &result));
+    return BigInt{result};
+  }
+
+  static int as_(js_env_t* env, js_value_t* value, int64_t* result) {
+    return js_get_value_bigint_int64(env, value, result, nullptr);
+  }
+  static int as_(js_env_t* env, js_value_t* value, uint64_t* result) {
+    return js_get_value_bigint_uint64(env, value, result, nullptr);
+  }
+};
+
+struct Object : Value<Object> {
+  friend struct Value<Object>;
+  Object(js_env_t* env, js_value_t* value) : Value<Object>{env, value} {}
+
+  static constexpr std::string_view typeName() { return js::typeName(js_object); }
+
+  void setProperty(js_env_t* env, const char* name, js_value_t* value) {
+    JS(js_set_named_property(env, value_, name, value));
+  }
+
+  js_value_t* getProperty(js_env_t* env, const char* name) {
+    js_value_t* result;
+    JS(js_get_named_property(env, value_, name, &result));
+    return result;
+  }
+
+  js_value_t* getProperty(js_env_t* env, js_value_t* key) {
+    js_value_t* result;
+    JS(js_get_property(env, value_, key, &result));
+    return result;
+  }
+
+  template <typename JsType>
+  auto getProperty(js_env_t* env, const char* name) {
+    auto result = getProperty(env, name);
+    if ( !js::is<JsType>(env, result) ) {
+      // Handle incomplete types that don't have typeName()
+      std::string_view typeName;
+      if constexpr (std::is_same_v<JsType, Int32>) {
+        typeName = "int32";
+      } else if constexpr (std::is_same_v<JsType, Uint32>) {
+        typeName = "uint32";
+      } else {
+        typeName = JsType::typeName();
+      }
+      throw qvac_errors::StatusError(qvac_errors::general_error::InvalidArgument, formatAccessError(name, typeName).c_str());
+    }
+    
+    // Handle incomplete types that don't have fromValue()
+    if constexpr (std::is_same_v<JsType, Int32>) {
+      return Number::fromValue(result);
+    } else if constexpr (std::is_same_v<JsType, Uint32>) {
+      return Number::fromValue(result);
+    } else {
+      return JsType::fromValue(result);
+    }
+  }
+
+  template <typename JsType>
+  std::optional<JsType> getOptionalProperty(js_env_t* env, const char* name) {
+    auto result = getProperty(env, name);
+    if ( js::is<Undefined>(env, result) || js::is<Null>(env, result) ) {
+      return std::nullopt;
+    }
+    if ( !js::is<JsType>(env, result) ) {
+      throw qvac_errors::StatusError(qvac_errors::general_error::InvalidArgument, formatAccessError(name, JsType::typeName()).c_str());
+    }
+    return JsType::fromValue(result);
+  }
+
+  template <typename JsType, typename CppT>
+  CppT getPropertyAs(js_env_t* env, const char* name) {
+    return getProperty<JsType>(env, name).template as<CppT>(env);
+  }
+
+  template <typename JsType, typename CppT>
+  std::optional<CppT> getOptionalPropertyAs(js_env_t* env, const char* name) {
+    std::optional<JsType> optionalJsProperty =
+        getOptionalProperty<JsType>(env, name);
+    if (optionalJsProperty.has_value()) {
+      return optionalJsProperty.value().template as<CppT>(env);
+    }
+    return std::nullopt;
+  }
+
+protected:
+  explicit Object(js_value_t* value) : Value<Object>{value} {}
+
+  static int create_(js_env_t* env, js_value_t** result) {
+    return js_create_object(env, result);
+  }
+
+private:
+  std::string formatAccessError(const char* name, std::string_view expected) {
+    std::string msg = "Expected property ";
+    msg += name;
+    msg += " to be of type ";
+    msg += expected;
+    return msg;
+  }
+
+};
+
+struct Array : Value<Array> {
+  friend struct Value<Array>;
+  Array(js_env_t* env, js_value_t* value) : Value<Array>{env, value} {}
+
+  using Value<Array>::create;
+
+  static Array create(js_env_t* env, std::span<js_value_t* const> elements) {
+    auto array = Array::create(env, elements.size());
+    array.set(env, elements);
+    return array;
+  }
+
+  static constexpr std::string_view typeName() { return "array"; }
+
+  uint32_t size(js_env_t* env) {
+    uint32_t result;
+    JS(js_get_array_length(env, value_, &result));
+    return result;
+  }
+
+  bool has(js_env_t* env, uint32_t index) {
+    bool result;
+    JS(js_has_element(env, value_, index, &result));
+    return result;
+  }
+
+  template <typename JsType>
+  JsType get(js_env_t* env, uint32_t index) {
+    js_value_t* result;
+    JS(js_get_element(env, value_, index, &result));
+    return JsType{env, result};
+  }
+
+  void set(
+      js_env_t* env, std::span<js_value_t* const> elements, size_t offset = 0) {
+    JS(js_set_array_elements(
+        env, value_, elements.data(), elements.size(), offset));
+  }
+
+  void set(js_env_t* env, uint32_t index, js_value_t* value) {
+    JS(js_set_element(env, value_, index, value));
+  }
+
+  void remove(js_env_t* env, uint32_t index) {
+    JS(js_delete_element(env, value_, index, nullptr));
+  }
+
+protected:
+  explicit Array(js_value_t* value) : Value<Array>{value} {}
+
+  static int create_(js_env_t* env, js_value_t** result) {
+    return js_create_array(env, result);
+  }
+
+  static int create_(js_env_t* env, size_t len, js_value_t** result) {
+    return js_create_array_with_length(env, len, result);
+  }
+
+  static int as_(js_env_t* env, js_value_t* value, std::vector<js_value_t*>* result) {
+    auto array = Array::fromValue(value);
+    size_t len = array.size(env), offset = 0;
+    result->resize(len);
+    return js_get_array_elements(env, array, result->data(), len, offset, nullptr);
+  }
+
+};
+
+struct External : Value<External> {
+  friend struct Value<External>;
+  External(js_env_t* env, js_value_t* value) : Value<External>{env, value} {}
+
+  static constexpr std::string_view typeName() { return js::typeName(js_external); }
+
+protected:
+  explicit External(js_value_t* value) : Value<External>{value} {}
+
+  static int create_(js_env_t* env, void* value, js_value_t** result) {
+    return js_create_external(env, value, nullptr, nullptr, result);
+  }
+
+  static int as_(js_env_t* env, js_value_t* value, void** result) {
+    return js_get_value_external(env, value, result);
+  }
+};
+
+struct Function : Value<Function> {
+  friend struct Value<Function>;
+  Function(js_env_t* env, js_value_t* value) : Value<Function>{env, value} {}
+
+  static constexpr std::string_view typeName() { return js::typeName(js_function); }
+
+protected:
+  explicit Function(js_value_t* value) : Value<Function>{value} {}
+};
+
+template <typename SubType>
+struct TypedArray : Value<TypedArray<SubType>> {
+  friend struct Value<TypedArray<SubType>>;
+  explicit TypedArray(js_env_t* env, js_value_t* value) : Value<TypedArray<SubType>>{env, value} {}
+
+  static constexpr std::string_view typeName() {
+    if constexpr (std::is_same_v<SubType, int8_t>) return "int8array";
+    else if constexpr (std::is_same_v<SubType, uint8_t>) return "uint8array";
+    else if constexpr (std::is_same_v<SubType, int16_t>) return "int16array";
+    else if constexpr (std::is_same_v<SubType, uint16_t>) return "uint16array";
+    else if constexpr (std::is_same_v<SubType, int32_t>) return "int32array";
+    else if constexpr (std::is_same_v<SubType, uint32_t>) return "uint32array";
+    else if constexpr (std::is_same_v<SubType, float>) return "float32array";
+    else if constexpr (std::is_same_v<SubType, double>) return "float64array";
+    else if constexpr (std::is_same_v<SubType, int64_t>) return "bigint64array";
+    else if constexpr (std::is_same_v<SubType, uint64_t>) return "biguint64array";
+    else {
+      static_assert(sizeof(SubType)==0, "Invalid typed array subtype");
+    }
+  }
+
+  static constexpr js_typedarray_type_t jsArrayT() {
+    if constexpr (std::is_same_v<SubType, int8_t>)
+      return js_int8array;
+    else if constexpr (std::is_same_v<SubType, uint8_t>)
+      return js_uint8array;
+    else if constexpr (std::is_same_v<SubType, int16_t>)
+      return js_int16array;
+    else if constexpr (std::is_same_v<SubType, uint16_t>)
+      return js_uint16array;
+    else if constexpr (std::is_same_v<SubType, int32_t>)
+      return js_int32array;
+    else if constexpr (std::is_same_v<SubType, uint32_t>)
+      return js_uint32array;
+    else if constexpr (std::is_same_v<SubType, float>)
+      return js_float32array;
+    else if constexpr (std::is_same_v<SubType, double>)
+      return js_float64array;
+    else if constexpr (std::is_same_v<SubType, int64_t>)
+      return js_bigint64array;
+    else if constexpr (std::is_same_v<SubType, uint64_t>)
+      return js_biguint64array;
+    else {
+      static_assert(sizeof(SubType) == 0, "Invalid typed array subtype");
+    }
+  }
+
+  template <typename CppT>
+  static TypedArray<SubType>
+  create(js_env_t* env, std::span<const CppT>& data) {
+    js_value_t* arrayBuffer = nullptr;
+    void* arrayBufferData = nullptr;
+    JS(js_create_arraybuffer(
+        env, data.size() * sizeof(CppT), &arrayBufferData, &arrayBuffer));
+
+    std::memcpy(arrayBufferData, data.data(), data.size() * sizeof(CppT));
+
+    js_value_t* typedArray = nullptr;
+    JS(js_create_typedarray(
+        env, jsArrayT(), data.size(), arrayBuffer, 0, &typedArray));
+
+    return TypedArray<SubType>{env, typedArray};
+  }
+
+  template <typename CppType,
+    std::enable_if_t<
+      std::is_same_v<typename CppType::value_type, SubType>
+      || std::is_same_v<typename CppType::value_type, char>, bool> = true>
+  CppType as(js_env_t* env) {
+    typename CppType::value_type* data;
+    size_t dataSz;
+    JS(js_get_typedarray_info(
+        env, Value<TypedArray<SubType>>::value_, nullptr, (void**)&data, &dataSz, nullptr, nullptr));
+    return CppType(data, data + dataSz);
+  }
+
+protected:
+  explicit TypedArray(js_value_t* value) : Value<TypedArray<SubType>>{value} {}
+
+};
+
+inline std::vector<js_value_t*> getArguments(js_env_t* env, js_callback_info_t* info) {
+  size_t argc;
+  JS(js_get_callback_info(env, info, &argc, NULL, NULL, NULL));
+
+  std::vector<js_value_t*> args{ argc };
+
+  JS(js_get_callback_info(env, info, &argc, args.data(), NULL, NULL));
+
+  return args;
+}
+
+class UniqueRefDeleter {
+public:
+  virtual int js_delete_ref(js_env_t *env, js_ref_t *ref) = 0;
+};
+
+class ImmediateUniqueRefDeleter : public UniqueRefDeleter {
+public:
+  inline int js_delete_ref(js_env_t *env, js_ref_t *ref) override {
+    return js_delete_reference(env, ref);
+  }
+};
+
+/// @brief Will delay the deletion of the reference until .clear() is called
+/// from the same thread that created the deleter. Can be useful to pass
+/// references to a different thread but still destroy the reference in the same
+/// thread that created the reference.
+class ThreadQueuedRefDeleter : public UniqueRefDeleter {
+private:
+#ifndef NDEBUG
+  std::thread::id threadId = std::this_thread::get_id();
+#endif
+  std::mutex delayedDeletionsMutex;
+  std::vector<std::pair<js_env_t *, js_ref_t *>> delayedDeletions{};
+
+  inline void _clear() {
+    for (auto [env_ptr, ref_ptr] : delayedDeletions) {
+      JS(js_delete_reference(env_ptr, ref_ptr));
+    }
+    delayedDeletions.clear();
+  }
+
+public:
+  template <bool force_sync = false> void clear() {
+    assert(this->threadId == std::this_thread::get_id());
+    if constexpr (force_sync) {
+      std::lock_guard<std::mutex> lock(delayedDeletionsMutex);
+      _clear();
+    } else {
+      if (!delayedDeletionsMutex.try_lock()) {
+        return;
+      }
+      std::lock_guard<std::mutex> lock(delayedDeletionsMutex, std::adopt_lock);
+      _clear();
+    }
+  }
+  inline int js_delete_ref(js_env_t *env, js_ref_t *ref) override {
+    std::lock_guard<std::mutex> lock(delayedDeletionsMutex);
+    delayedDeletions.push_back({env, ref});
+    return 0;
+  }
+};
+
+/// @brief A unique reference to a JS value that will prevent automatic garbage
+/// collection.
+/// @note The reference counter to the underlying js_value is kept to 1. Only
+/// move operations are allowed.
+template <typename JsType> struct UniqueJsRef {
+
+  /// @brief Default constructor for nullptr reference
+  UniqueJsRef() = default;
+
+  // store env used for construction for the destructor
+  /// @param env The environment to use for the reference destruction when going
+  /// out of scope
+  UniqueJsRef(js_env_t *env, js_value_t *value,
+              UniqueRefDeleter *deleter = nullptr)
+      : env_(env), deleter(deleter) {
+    JS(js_create_reference(env, value, 1, &reference_));
+  }
+
+  ~UniqueJsRef() {
+    if (reference_ && deleter) {
+      if(deleter->js_delete_ref(env_, reference_) != 0) {
+        // noexcept in destructor, just print a warning
+        fprintf(stderr, "Warning: Failed to delete reference %p\n", reference_);
+      }
+    }
+  }
+
+  UniqueJsRef(const UniqueJsRef &other) = delete;
+
+  UniqueJsRef &operator=(const UniqueJsRef &other) = delete;
+
+  UniqueJsRef(UniqueJsRef &&other) noexcept
+      : env_(other.env_), reference_(other.reference_), deleter(other.deleter) {
+    other.reference_ = nullptr;
+    other.deleter = nullptr;
+  }
+
+  UniqueJsRef &operator=(UniqueJsRef &&other) noexcept {
+    if (this != &other) {
+      if (reference_ && deleter) {
+        JS(deleter->js_delete_ref(env_, reference_));
+      }
+      env_ = other.env_;
+      reference_ = other.reference_;
+      deleter = other.deleter;
+      other.reference_ = nullptr;
+      other.deleter = nullptr;
+    }
+    return *this;
+  }
+
+  /// @brief Move the reference to a new environment
+  /// @param env The new environment to use for the reference destruction when
+  /// going out of scope
+  /// @return A reference to the moved UniqueJsRef
+  UniqueJsRef &&move_into_env(js_env_t *env) {
+    env_ = env;
+    return std::move(*this);
+  }
+
+  /// @brief Get a fresh js_value_t* from the reference
+  JsType get() const {
+    js_value_t *result = nullptr;
+    if (reference_) {
+      JS(js_get_reference_value(env_, reference_, &result));
+    }
+    return JsType{env_, result};
+  }
+
+  template <typename JsPropertyType>
+  std::optional<JsPropertyType> getOptionalProperty(const char *name) {
+    return get().template getOptionalProperty<JsPropertyType>(env_, name);
+  }
+
+  template <typename JsPropertyType>
+  JsPropertyType getProperty(const char *name) {
+    return get().template getProperty<JsPropertyType>(env_, name);
+  }
+
+  js_env_t *env() const { return env_; }
+
+private:
+  js_env_t *env_;
+  js_ref_t *reference_ = nullptr;
+  UniqueRefDeleter *deleter;
+};
+
+template <typename JsType, typename CppType>
+std::vector<CppType> toVector(js_env_t* env, Array array) {
+  std::vector<CppType> result;
+  auto arraySz = array.size(env);
+  result.reserve(arraySz);
+  for (auto i = 0; i != arraySz; ++i) {
+    result.emplace_back(array.get<JsType>(env, i).template as<CppType>(env));
+  }
+  return result;
+}
+
+/// @brief Utility for executing blocking C++ operations asynchronously and
+/// returning a JavaScript Promise/Future
+/// @details Handles thread spawning, promise creation, and result delivery
+/// back to the JavaScript event loop via uv_async. Environment-scoped: a
+/// deferred env teardown callback keeps a dying env (worklet terminate /
+/// unload) alive until the worker finishes, and completion skips every
+/// promise/JS operation once teardown has begun — the promise is simply
+/// abandoned, its env is going away with it. A rejection carries the same
+/// `code` and `message` as an error thrown through `JSCATCH`.
+///
+/// `run()` starts a thread per task. `runOn()` posts the task to an
+/// `IAsyncTaskExecutor` the addon owns instead. A task still queued there when
+/// its env is torn down is cancelled, so the dying env waits only for a task
+/// that has already started.
+///
+/// @example
+/// return js::JsAsyncTask::run(env, []() {
+///   heavyComputation();
+/// });
+///
+/// return js::JsAsyncTask::run(
+///     env,
+///     []() { return heavyComputation(); },
+///     [](js_env_t* env, const Result& result) { return toJs(env, result); });
+///
+/// return js::JsAsyncTask::runOn(
+///     env,
+///     executor,
+///     []() { return heavyComputation(); },
+///     [](js_env_t* env, const Result& result) { return toJs(env, result); });
+class JsAsyncTask {
+  template <typename Result> struct CallbackData {
+    using Work = std::function<Result()>;
+    using Marshal = std::function<js_value_t*(js_env_t*, const Result&)>;
+
+    js_env_t* env;
+    js_deferred_t* deferred;
+    uv_async_t* async_handle;
+    /// Blocks env teardown (keeping the env and its loop alive) until the
+    /// worker has finished; finished by the uv close callback.
+    js_deferred_teardown_t* teardown = nullptr;
+    /// Loop-thread only: flipped by onEnvTeardown, read by onComplete. JS
+    /// APIs beyond the teardown handshake are illegal once false.
+    bool envAlive = true;
+    std::exception_ptr error;
+    /// The user work, loop-owned: the worker thread only runs it; completion
+    /// destroys it before settling the promise and the uv close callback
+    /// provides cleanup for paths where completion never runs. That ordering
+    /// is the point — captures (commonly the last shared_ptr to the addon)
+    /// have JS-facing destructors, and once the teardown is finished the env
+    /// can be gone. A worker-owned copy would be destroyed after uv_async_send,
+    /// racing exactly that.
+    Work work;
+    Marshal marshal;
+    std::optional<Result> result;
+    /// Set by runOn(): the executor the work was posted to, and the ticket it
+    /// returned. Loop-thread only.
+    IAsyncTaskExecutor* executor = nullptr;
+    std::uint64_t ticket = 0;
+    /// Set by the worker as it starts the task. Once the teardown hook sees
+    /// it, the hook leaves the executor alone: the task can no longer be
+    /// cancelled, and the executor may already have been destroyed.
+    std::atomic<bool> started{false};
+
+    CallbackData(
+        js_env_t* e, js_deferred_t* d, uv_async_t* h, Work w, Marshal m)
+        : env(e), deferred(d), async_handle(h), error(nullptr),
+          work(std::move(w)), marshal(std::move(m)) {}
+  };
+
+  /// Deferred env teardown hook (loop thread): the env is dying while the
+  /// worker may still be blocked — e.g. a cancel waiting for the scheduler
+  /// to release a slot. Marking the env dead makes onComplete skip every JS
+  /// operation; deliberately NOT finishing the deferred teardown here keeps
+  /// the env's loop running until the worker is done, so the detached
+  /// thread's uv_async_send always targets a live loop and the uv close
+  /// callback finishes the teardown afterwards.
+  ///
+  /// A runOn() task that is still queued on its executor is cancelled
+  /// instead: it will never run or send, so the hook closes the handle itself
+  /// and the close callback finishes the teardown. Without that, a dying env
+  /// would wait for every task queued ahead of this one as well. A task that
+  /// has started is never cancelled, so once the hook sees it started, it does
+  /// not touch the executor: an executor destroyed on this thread after
+  /// running the task may already be gone. A task that starts between the
+  /// check and cancel() makes cancel() return false; the executor is still
+  /// alive then, because the IAsyncTaskExecutor contract keeps it alive until
+  /// the task's Promise settles or its env has been torn down.
+  template <typename Result>
+  static void onEnvTeardown(js_deferred_teardown_t*, void* opaque) {
+    auto* data = static_cast<CallbackData<Result>*>(opaque);
+    data->envAlive = false;
+    if (data->executor != nullptr &&
+        !data->started.load(std::memory_order_acquire) &&
+        data->executor->cancel(data->ticket)) {
+      uv_close(
+          reinterpret_cast<uv_handle_t*>(data->async_handle),
+          &JsAsyncTask::onCloseHandle<Result>);
+    }
+  }
+
+  /// The worker side of every task, on a detached thread or an executor
+  /// thread. It owns nothing JS-facing: the work lives in loop-owned
+  /// CallbackData, so once the send is out the caller's frame is inert even
+  /// if the loop finishes the teardown immediately.
+  template <typename Result> static void execute(CallbackData<Result>* data) {
+    data->started.store(true, std::memory_order_release);
+    try {
+      data->result.emplace(data->work());
+    } catch (...) {
+      data->error = std::current_exception();
+    }
+    // Always safe: either the env is alive, or its teardown is blocked on
+    // this task's unfinished deferred teardown, keeping the loop running.
+    uv_async_send(data->async_handle);
+  }
+
+  static js_value_t* utf8(js_env_t* env, const std::string& text) {
+    js_value_t* value;
+    JS(js_create_string_utf8(
+        env,
+        reinterpret_cast<const utf8_t*>(text.c_str()),
+        text.size(),
+        &value));
+    return value;
+  }
+
+  static void
+  reject(js_env_t* env, js_deferred_t* deferred, std::exception_ptr error) {
+    std::string code = "INTERNAL_ERROR";
+    std::string message = "Unknown error";
+    try {
+      std::rethrow_exception(error);
+    } catch (const qvac_errors::StatusError& e) {
+      code = e.codeString();
+      message = e.what();
+      // Completion runs with an empty JavaScript stack, so libjs hands a failed
+      // call's exception to the uncaught exception handler.
+      if (e.isJSError() && message.empty()) {
+        message = "a JavaScript call failed and its exception was reported as "
+                  "uncaught";
+      }
+    } catch (const std::exception& e) {
+      message = e.what();
+    } catch (...) {
+    }
+    js_value_t* value;
+    JS(js_create_error(env, utf8(env, code), utf8(env, message), &value));
+    JS(js_reject_deferred(env, deferred, value));
+  }
+
+  /// Loop-side end of every task, successful or aborted (settlement failure,
+  /// worker that never started, task cancelled on its executor at env
+  /// teardown): provides fallback destruction for the work,
+  /// then finishes the deferred teardown and frees the handle. Requires a
+  /// registered teardown.
+  template <typename Result> static void onCloseHandle(uv_handle_t* h) {
+    auto* async = reinterpret_cast<uv_async_t*>(h);
+    std::unique_ptr<CallbackData<Result>> data(
+        static_cast<CallbackData<Result>*>(async->data));
+    // Normally cleared by onComplete before promise settlement. This also
+    // handles the paths where completion never runs: a worker that failed to
+    // start, and a task cancelled on its executor.
+    data->work = nullptr;
+    data->marshal = nullptr;
+    data->result.reset();
+    data->error = nullptr;
+    // Lets a pending env teardown complete; on the live-env path it just
+    // unregisters the hook. Legal either way (see bare-signals).
+    js_finish_deferred_teardown_callback(data->teardown);
+    delete async;
+  }
+
+  template <typename Result> static void onComplete(uv_async_t* handle) {
+    auto* data = static_cast<CallbackData<Result>*>(handle->data);
+
+    // Release captures before making completion observable to JavaScript.
+    // Otherwise an awaited cancel can proceed into destroyInstance while this
+    // task still owns the AddonCpp (and potentially a multi-gigabyte model)
+    // until the later uv close callback. This runs on the loop while the env
+    // is pinned, preserving the teardown-safety contract.
+    data->work = nullptr;
+
+    // Once env teardown has begun, settling the promise would touch a dying
+    // env; skip all JS work and just run the close/finish handshake below.
+    // The settlement itself must not throw past this frame: uv calls it
+    // from C (std::terminate), and skipping the handshake would block env
+    // teardown forever — a failed settlement abandons the promise instead.
+    if (data->envAlive) {
+      js_handle_scope_t* scope = nullptr;
+      try {
+        JS(js_open_handle_scope(data->env, &scope));
+
+        std::exception_ptr failure = data->error;
+        js_value_t* value = nullptr;
+        if (!failure) {
+          try {
+            value = data->marshal(data->env, *data->result);
+          } catch (...) {
+            failure = std::current_exception();
+          }
+        }
+        data->marshal = nullptr;
+        data->result.reset();
+
+        if (failure) {
+          reject(data->env, data->deferred, failure);
+        } else {
+          JS(js_resolve_deferred(data->env, data->deferred, value));
+        }
+      } catch (...) {
+        // Settlement failed; fall through to the handshake regardless.
+      }
+      if (scope != nullptr) {
+        js_close_handle_scope(data->env, scope);
+      }
+    }
+    data->marshal = nullptr;
+    data->result.reset();
+    data->error = nullptr;
+
+    uv_close(
+        reinterpret_cast<uv_handle_t*>(handle),
+        &JsAsyncTask::onCloseHandle<Result>);
+  }
+
+  /// Settles a deferred whose promise is never returned to JavaScript, which
+  /// releases it: js.h requires every deferred to be settled. It resolves
+  /// rather than rejects, because nothing can observe the promise and a
+  /// rejection would be reported as unhandled.
+  static void
+  releaseUnreturned(js_env_t* env, js_deferred_t* deferred) noexcept {
+    js_value_t* undefined = nullptr;
+    if (js_get_undefined(env, &undefined) == 0) {
+      js_resolve_deferred(env, deferred, undefined);
+    }
+  }
+
+  /// Fails start() after its promise was created: the promise is never
+  /// returned, so its deferred is released before the error is thrown.
+  [[noreturn]] static void
+  failUnreturned(js_env_t* env, js_deferred_t* deferred, const char* message) {
+    releaseUnreturned(env, deferred);
+    throw qvac_errors::StatusError(
+        qvac_errors::general_error::InternalError, message);
+  }
+
+  /// Runs the task on @p executor, or on a new detached thread when it is
+  /// nullptr.
+  template <typename Result>
+  static js_value_t* start(
+      js_env_t* env, IAsyncTaskExecutor* executor,
+      typename CallbackData<Result>::Work work,
+      typename CallbackData<Result>::Marshal marshal) {
+    js_deferred_t* deferred;
+    js_value_t* promise;
+    JS(js_create_promise(env, &deferred, &promise));
+
+    uv_loop_t* loop;
+    JS(js_get_env_loop(env, &loop));
+    auto* async_handle = new uv_async_t{};
+    if (uv_async_init(loop, async_handle, &JsAsyncTask::onComplete<Result>) !=
+        0) {
+      delete async_handle;
+      failUnreturned(
+          env, deferred, "Failed to initialize async handle for JsAsyncTask");
+    }
+
+    auto* data = new CallbackData<Result>(
+        env, deferred, async_handle, std::move(work), std::move(marshal));
+    async_handle->data = data;
+
+    // Environment-scope the task before the worker exists, so env teardown
+    // can never race a thread the env does not know about.
+    if (js_add_deferred_teardown_callback(
+            env, &JsAsyncTask::onEnvTeardown<Result>, data, &data->teardown) !=
+        0) {
+      uv_close(
+          reinterpret_cast<uv_handle_t*>(async_handle), [](uv_handle_t* h) {
+            auto* async = reinterpret_cast<uv_async_t*>(h);
+            delete static_cast<CallbackData<Result>*>(async->data);
+            delete async;
+          });
+      // Registration fails when the env is already being destroyed, with a
+      // JavaScript exception pending, so the release may fail too. The
+      // deferred then goes away with the env.
+      failUnreturned(
+          env,
+          deferred,
+          "Failed to register env teardown callback for JsAsyncTask");
+    }
+
+    bool dispatched = false;
+    if (executor != nullptr) {
+      // Building the std::function argument may allocate, and throw, before
+      // post() runs.
+      try {
+        const std::uint64_t ticket =
+            executor->post([data]() { JsAsyncTask::execute<Result>(data); });
+        if (ticket != 0) {
+          // Written after post() returns, while the task may already be
+          // running: the worker never reads these fields, and completion, the
+          // teardown hook and the close callback all run on this loop thread,
+          // so none of them can run before this frame returns.
+          data->executor = executor;
+          data->ticket = ticket;
+          dispatched = true;
+        }
+      } catch (...) {
+      }
+    } else {
+      try {
+        std::thread([data]() { JsAsyncTask::execute<Result>(data); }).detach();
+        dispatched = true;
+      } catch (...) {
+      }
+    }
+
+    if (!dispatched) {
+      // Nothing was queued or started, so nobody will ever send: run the
+      // close/finish handshake ourselves, or the teardown registered above
+      // blocks unload forever.
+      uv_close(
+          reinterpret_cast<uv_handle_t*>(async_handle),
+          &JsAsyncTask::onCloseHandle<Result>);
+      failUnreturned(
+          env,
+          deferred,
+          executor != nullptr
+              ? "Failed to post work for JsAsyncTask to its executor"
+              : "Failed to start worker thread for JsAsyncTask");
+    }
+    return promise;
+  }
+
+public:
+  /// @brief Execute blocking work asynchronously and return a promise
+  /// @param env JavaScript environment
+  /// @param work Blocking operation to execute on a background thread
+  /// @return JavaScript Promise that resolves when work completes
+  template <typename Work> static js_value_t* run(js_env_t* env, Work&& work) {
+    return startVoid(env, nullptr, std::forward<Work>(work));
+  }
+
+  /// @brief Execute blocking work asynchronously and resolve the promise with
+  /// `marshal(env, result)`, called on the JS thread
+  template <typename Work, typename Marshal>
+  static js_value_t* run(js_env_t* env, Work&& work, Marshal&& marshal) {
+    return startValue(
+        env, nullptr, std::forward<Work>(work), std::forward<Marshal>(marshal));
+  }
+
+  /// @brief Like run(env, work), but posts the work to @p executor instead of
+  /// starting a thread
+  /// @details If the env is torn down while the work is still queued on
+  /// @p executor, the work is cancelled there and never runs. Throws a
+  /// `StatusError` when the executor does not accept the work.
+  template <typename Work>
+  static js_value_t*
+  runOn(js_env_t* env, IAsyncTaskExecutor& executor, Work&& work) {
+    return startVoid(env, &executor, std::forward<Work>(work));
+  }
+
+  /// @brief Like run(env, work, marshal), but posts the work to @p executor
+  /// instead of starting a thread
+  /// @details Same cancellation and errors as runOn(env, executor, work).
+  template <typename Work, typename Marshal>
+  static js_value_t* runOn(
+      js_env_t* env, IAsyncTaskExecutor& executor, Work&& work,
+      Marshal&& marshal) {
+    return startValue(
+        env,
+        &executor,
+        std::forward<Work>(work),
+        std::forward<Marshal>(marshal));
+  }
+
+private:
+  template <typename Work>
+  static js_value_t*
+  startVoid(js_env_t* env, IAsyncTaskExecutor* executor, Work&& work) {
+    static_assert(
+        std::is_void_v<std::invoke_result_t<Work&>>,
+        "work with a result takes a marshal: JsAsyncTask::run(env, work, "
+        "marshal) or JsAsyncTask::runOn(env, executor, work, marshal)");
+    return start<std::monostate>(
+        env,
+        executor,
+        [work = std::forward<Work>(work)]() mutable {
+          work();
+          return std::monostate{};
+        },
+        [](js_env_t* env, const std::monostate&) {
+          js_value_t* undefined;
+          JS(js_get_undefined(env, &undefined));
+          return undefined;
+        });
+  }
+
+  template <typename Work, typename Marshal>
+  static js_value_t* startValue(
+      js_env_t* env, IAsyncTaskExecutor* executor, Work&& work,
+      Marshal&& marshal) {
+    using Result = std::decay_t<std::invoke_result_t<Work&>>;
+    static_assert(
+        !std::is_void_v<Result>,
+        "work without a result takes no marshal: JsAsyncTask::run(env, work) "
+        "or JsAsyncTask::runOn(env, executor, work)");
+    return start<Result>(
+        env,
+        executor,
+        std::forward<Work>(work),
+        std::forward<Marshal>(marshal));
+  }
+};
+
+} // namespace qvac_lib_inference_addon_cpp::js

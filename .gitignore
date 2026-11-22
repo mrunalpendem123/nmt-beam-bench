@@ -1,0 +1,6 @@
+build-*/
+bin-*
+results/
+model/
+fabric/
+.DS_Store

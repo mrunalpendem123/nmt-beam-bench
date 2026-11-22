@@ -181,7 +181,12 @@ static buft_list_t make_buft_list(const nmt_context_params& params) {
   if (get_extra_bufts_fn) {
     ggml_backend_buffer_type_t* extra_bufts = get_extra_bufts_fn(cpu_dev);
     while (extra_bufts && *extra_bufts) {
-      buft_list.emplace_back(cpu_dev, *extra_bufts);
+      // AMX tiles pay off for large batches; decoding here multiplies at most
+      // a few rows per step (one per beam), where AMX was measured slower
+      // than the CPU_REPACK kernels, so leave it out.
+      if (std::string(ggml_backend_buft_name(*extra_bufts)) != "AMX") {
+        buft_list.emplace_back(cpu_dev, *extra_bufts);
+      }
       ++extra_bufts;
     }
   }

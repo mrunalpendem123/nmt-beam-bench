@@ -963,10 +963,19 @@ static bool nmt_model_load(struct nmt_model_loader* loader, nmt_context& ctx) {
       model.m_lm_head_w != nullptr && model.m_decoder_embeddings != nullptr &&
       ggml_are_same_shape(model.m_lm_head_w, model.m_decoder_embeddings) &&
       model.m_lm_head_w->type == model.m_decoder_embeddings->type) {
-    std::vector<uint8_t> tied(ggml_nbytes(model.m_decoder_embeddings));
-    ggml_backend_tensor_get(
-        model.m_decoder_embeddings, tied.data(), 0, tied.size());
-    ggml_backend_tensor_set(model.m_lm_head_w, tied.data(), 0, tied.size());
+    // The embeddings stay in a host buffer (token lookup reads them by row),
+    // so fill the copy straight from them instead of staging another
+    // full-size host copy, which would stay resident after loading.
+    const size_t n_bytes = ggml_nbytes(model.m_decoder_embeddings);
+    if (ggml_backend_buffer_is_host(model.m_decoder_embeddings->buffer)) {
+      ggml_backend_tensor_set(
+          model.m_lm_head_w, model.m_decoder_embeddings->data, 0, n_bytes);
+    } else {
+      std::vector<uint8_t> tied(n_bytes);
+      ggml_backend_tensor_get(
+          model.m_decoder_embeddings, tied.data(), 0, n_bytes);
+      ggml_backend_tensor_set(model.m_lm_head_w, tied.data(), 0, n_bytes);
+    }
     model.lm_head_tied = true;
   }
 

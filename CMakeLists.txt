@@ -22,6 +22,7 @@ set(SPM_BUILD_TEST OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(sentencepiece
   URL https://github.com/google/sentencepiece/archive/refs/tags/v0.2.0.tar.gz)
 FetchContent_MakeAvailable(sentencepiece)
+target_compile_options(sentencepiece-static PRIVATE -include ${CMAKE_SOURCE_DIR}/stub/cstdint_fix.h)
 
 foreach(t nmtbench2 cntbench)
   add_executable(${t} ${t}.cpp ${NMT_CPP} ${NMT}/NmtLazyInitializeBackend.cpp)

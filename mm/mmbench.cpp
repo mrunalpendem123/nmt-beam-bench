@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 #include <random>
 #include <string>
 #include <vector>
@@ -12,6 +13,54 @@
 #include "ggml-alloc.h"
 #include "ggml-backend.h"
 #include "ggml-cpu.h"
+#include <cmath>
+#if defined(__x86_64__)
+#include <immintrin.h>
+#endif
+
+// After one multiply, time a double-precision log-sum-exp over its output on this thread
+// (what beam scoring does per step). mode 1 clears the upper vector registers first.
+static void exp_after(ggml_backend_t be, ggml_backend_buffer_type_t wbuft, const char* name) {
+  const int K = 512, M = 122672;
+  ggml_init_params ip = {ggml_tensor_overhead() * 8 + ggml_graph_overhead(), nullptr, true};
+  ggml_context* wctx = ggml_init(ip);
+  ggml_tensor* w = ggml_new_tensor_2d(wctx, GGML_TYPE_Q4_0, K, M);
+  ggml_backend_buffer_t wbuf = ggml_backend_alloc_ctx_tensors_from_buft(wctx, wbuft);
+  ggml_backend_buffer_set_usage(wbuf, GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
+  std::mt19937 rng(1); std::normal_distribution<float> nd(0.f, 0.05f);
+  std::vector<float> f((size_t) K * M); for (auto& v : f) v = nd(rng);
+  std::vector<uint8_t> q(ggml_nbytes(w));
+  ggml_quantize_chunk(GGML_TYPE_Q4_0, f.data(), q.data(), 0, M, K, nullptr);
+  ggml_backend_tensor_set(w, q.data(), 0, q.size());
+  ggml_context* gctx = ggml_init(ip);
+  ggml_tensor* x = ggml_new_tensor_2d(gctx, GGML_TYPE_F32, K, 1);
+  ggml_tensor* y = ggml_mul_mat(gctx, w, x);
+  ggml_cgraph* g = ggml_new_graph(gctx); ggml_build_forward_expand(g, y);
+  ggml_backend_buffer_t gbuf = ggml_backend_alloc_ctx_tensors(gctx, be);
+  std::vector<float> xv(K); for (auto& v : xv) v = nd(rng) * 20;
+  ggml_backend_tensor_set(x, xv.data(), 0, xv.size() * 4);
+  std::vector<float> lg(M);
+  for (int mode = 0; mode < 2; ++mode) {
+    double tmm = 0, texp = 0, sink = 0;
+    for (int it = 0; it < 30; ++it) {
+      auto t0 = std::chrono::steady_clock::now();
+      ggml_backend_graph_compute(be, g);
+      ggml_backend_tensor_get(y, lg.data(), 0, M * 4);
+      auto t1 = std::chrono::steady_clock::now();
+#if defined(__x86_64__)
+      if (mode == 1) _mm256_zeroupper();
+#endif
+      double mx = *std::max_element(lg.begin(), lg.end()), sum = 0;
+      for (int i = 0; i < M; ++i) sum += std::exp((double) lg[i] - mx);
+      sink += sum;
+      auto t2 = std::chrono::steady_clock::now();
+      tmm += std::chrono::duration<double, std::micro>(t1 - t0).count();
+      texp += std::chrono::duration<double, std::micro>(t2 - t1).count();
+    }
+    printf("| %s | %s | %.0f | %.0f | %g |\n", name, mode ? "vzeroupper first" : "as is", tmm / 30, texp / 30, sink > 0 ? 1.0 : 0.0);
+  }
+  ggml_backend_buffer_free(gbuf); ggml_backend_buffer_free(wbuf); ggml_free(gctx); ggml_free(wctx);
+}
 
 static ggml_backend_buffer_type_t find_repack() {
   ggml_backend_dev_t dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
@@ -71,5 +120,9 @@ int main(int argc, char** argv) {
     double a = run(be, plain, s.K, s.M, N, it), b = run(be, rep, s.K, s.M, N, it);
     printf("| %s | %d | %.1f | %.1f | %.2f |\n", s.name, N, a, b, b / a);
   }
+  printf("\n| weights | exp loop | matmul us | exp loop us (122672 exp) | ok |\n|---|---|---|---|---|\n");
+  exp_after(be, plain, "plain");
+  exp_after(be, rep, "CPU_REPACK");
+  exp_after(be, plain, "plain again");
   ggml_backend_free(be);
 }

@@ -21,7 +21,7 @@ __attribute__((target("avx"))) static void zero_upper() { _mm256_zeroupper(); }
 
 // After one multiply, time a double-precision log-sum-exp over its output on this thread
 // (what beam scoring does per step). mode 1 clears the upper vector registers first.
-static void exp_after(ggml_backend_t be, ggml_backend_buffer_type_t wbuft, const char* name) {
+static void exp_after(ggml_backend_t be, ggml_backend_buffer_type_t wbuft, const char* name, int N) {
   const int K = 512, M = 122672;
   ggml_init_params ip = {ggml_tensor_overhead() * 8 + ggml_graph_overhead(), nullptr, true};
   ggml_context* wctx = ggml_init(ip);
@@ -34,11 +34,11 @@ static void exp_after(ggml_backend_t be, ggml_backend_buffer_type_t wbuft, const
   ggml_quantize_chunk(GGML_TYPE_Q4_0, f.data(), q.data(), 0, M, K, nullptr);
   ggml_backend_tensor_set(w, q.data(), 0, q.size());
   ggml_context* gctx = ggml_init(ip);
-  ggml_tensor* x = ggml_new_tensor_2d(gctx, GGML_TYPE_F32, K, 1);
+  ggml_tensor* x = ggml_new_tensor_2d(gctx, GGML_TYPE_F32, K, N);
   ggml_tensor* y = ggml_mul_mat(gctx, w, x);
   ggml_cgraph* g = ggml_new_graph(gctx); ggml_build_forward_expand(g, y);
   ggml_backend_buffer_t gbuf = ggml_backend_alloc_ctx_tensors(gctx, be);
-  std::vector<float> xv(K); for (auto& v : xv) v = nd(rng) * 20;
+  std::vector<float> xv((size_t) K * N); for (auto& v : xv) v = nd(rng) * 20;
   ggml_backend_tensor_set(x, xv.data(), 0, xv.size() * 4);
   std::vector<float> lg(M);
   for (int mode = 0; mode < 2; ++mode) {
@@ -58,7 +58,7 @@ static void exp_after(ggml_backend_t be, ggml_backend_buffer_type_t wbuft, const
       tmm += std::chrono::duration<double, std::micro>(t1 - t0).count();
       texp += std::chrono::duration<double, std::micro>(t2 - t1).count();
     }
-    printf("| %s | %s | %.0f | %.0f | %g |\n", name, mode ? "vzeroupper first" : "as is", tmm / 30, texp / 30, sink > 0 ? 1.0 : 0.0);
+    printf("| %s | %d | %s | %.0f | %.0f | %g |\n", name, N, mode ? "vzeroupper first" : "as is", tmm / 30, texp / 30, sink > 0 ? 1.0 : 0.0);
   }
   ggml_backend_buffer_free(gbuf); ggml_backend_buffer_free(wbuf); ggml_free(gctx); ggml_free(wctx);
 }
@@ -121,9 +121,11 @@ int main(int argc, char** argv) {
     double a = run(be, plain, s.K, s.M, N, it), b = run(be, rep, s.K, s.M, N, it);
     printf("| %s | %d | %.1f | %.1f | %.2f |\n", s.name, N, a, b, b / a);
   }
-  printf("\n| weights | exp loop | matmul us | exp loop us (122672 exp) | ok |\n|---|---|---|---|---|\n");
-  exp_after(be, plain, "plain");
-  exp_after(be, rep, "CPU_REPACK");
-  exp_after(be, plain, "plain again");
+  printf("\n| weights | N | exp loop | matmul us | exp loop us (122672 exp) | ok |\n|---|---|---|---|---|---|\n");
+  for (int N : {1, 4}) {
+    exp_after(be, plain, "plain", N);
+    exp_after(be, rep, "CPU_REPACK", N);
+    exp_after(be, plain, "plain again", N);
+  }
   ggml_backend_free(be);
 }

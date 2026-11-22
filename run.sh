@@ -10,7 +10,7 @@ JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 
 build() { # variant target
   cmake -S "$ROOT" -B "$ROOT/build-$1" -DGGML_DIR="$GGML_DIR" -DNMT_SRC="$ROOT/src/$1" >/dev/null
-  cmake --build "$ROOT/build-$1" --target "$2" -j "$JOBS" >/dev/null
+  cmake --build "$ROOT/build-$1" --target "$2" -j "$JOBS" > "$ROOT/build-$1.log" 2>&1 || { grep -iE "error" "$ROOT/build-$1.log" | head -40; exit 1; }
   if [ -f "$ROOT/build-$1/$2.exe" ]; then cp "$ROOT/build-$1/$2.exe" "$ROOT/bin-$1.exe"; else cp "$ROOT/build-$1/$2" "$ROOT/bin-$1"; fi
 }
 for v in base final vocab; do build $v nmtbench2; done

@@ -31,6 +31,11 @@ int main(int argc, char** argv) {
   if (getenv("FLASH")) p.flash_attn = atoi(getenv("FLASH"));
   nmt_context* ctx = nmtInitFromFileWithParams(argv[1], p);
   if (!ctx) { fprintf(stderr, "load failed\n"); return 1; }
+  if (getenv("BUFINFO")) {
+    auto bn = [](ggml_tensor* t) { return t && t->buffer ? ggml_backend_buffer_name(t->buffer) : "none"; };
+    fprintf(stderr, "BUFINFO dec0.attn_q=%s dec0.mlp_0=%s dec_embeddings=%s lm_head=%s\n", bn(ctx->model.layers_decoder[0].attn_q_w), bn(ctx->model.layers_decoder[0].mlp_0_w), bn(ctx->model.m_decoder_embeddings), bn(ctx->model.m_lm_head_w));
+    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) { auto* d = ggml_backend_dev_get(i); fprintf(stderr, "BUFINFO device %s: %s\n", ggml_backend_dev_name(d), ggml_backend_dev_description(d)); }
+  }
   ctx->setBeamSize(atoi(argv[5]));
   ctx->setMaxLength(512);
   if (getenv("REP")) ctx->setRepetitionPenalty(atof(getenv("REP")));

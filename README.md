@@ -5,6 +5,7 @@ Benchmarks for proposed changes to QVAC's translation engine (tetherto/qvac, pac
 Variants (sources under `src/`):
 
 - `base`: origin/main at fbadcc26, unmodified
+- `batch`: batched beam search only (weight buffers chosen as on main)
 - `final`: batched beam search (one decode per step, shared KV cells by sequence id), weights chosen per matrix so CPU_REPACK is used, tied output projection copied only when it gets a faster buffer
 - `vocab`: `final` plus a Hindi output vocabulary (`data/vocab_hin_K3.txt`, target pieces seen >= 3 times in Hindi Wikipedia, plus punctuation, digits, Latin and specials)
 - `cnt-base`, `cnt-final`: `base` and `final` with counters for decoder runs, KV bytes copied and KV bytes allocated

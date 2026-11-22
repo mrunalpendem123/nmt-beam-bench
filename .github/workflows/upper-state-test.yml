@@ -1,0 +1,49 @@
+name: upper-state-test
+
+on:
+  workflow_dispatch:
+    inputs:
+      reps:
+        description: JSON list, one job per entry per machine
+        default: '[1,2,3]'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+        branch: [temp-11739, temp-12032]
+        rep: ${{ fromJSON(inputs.reps || '[1,2,3]') }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: cpu
+        run: (lscpu 2>/dev/null | grep 'Model name') || (powershell -c "(Get-CimInstance Win32_Processor).Name")
+      - name: fabric source
+        run: |
+          git init -q fabric
+          git -C fabric fetch -q --depth 1 https://github.com/tetherto/qvac-fabric-llm.cpp ${{ matrix.branch }}
+          git -C fabric checkout -q FETCH_HEAD
+          git -C fabric log -1 --format='%H %s'
+          cp -r fabric fabric-fixed
+          git -C fabric apply "$PWD/patches/fabric-test-only.patch"
+          git -C fabric-fixed apply "$PWD/patches/fabric-fix-and-test.patch"
+      - name: build and run (test only, expect FAIL on x86 with AVX2)
+        run: |
+          cmake -S fabric -B b0 -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=ON -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF > /dev/null
+          cmake --build b0 --config Release --target test-repack-upper-state -j 4 > b0.log 2>&1 || { tail -50 b0.log; exit 1; }
+          exe=$(find b0 -name 'test-repack-upper-state*' -type f \( -name '*.exe' -o -perm -u+x \) | head -1)
+          set +e; "$exe"; echo "exit code: $?" | tee before.txt
+      - name: build and run (fix + test, expect OK)
+        run: |
+          cmake -S fabric-fixed -B b1 -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=ON -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF > /dev/null
+          cmake --build b1 --config Release --target test-repack-upper-state -j 4 > b1.log 2>&1 || { tail -50 b1.log; exit 1; }
+          exe=$(find b1 -name 'test-repack-upper-state*' -type f \( -name '*.exe' -o -perm -u+x \) | head -1)
+          "$exe"

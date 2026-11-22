@@ -265,8 +265,9 @@ struct ggml_cgraph* nmtBuildGraphDecoder(
   // One row per token in the batch: one token for greedy decoding, one per
   // live beam for beam search. The worst-case graph used to size the compute
   // buffers is built for a full beam, not for the whole decoder context.
-  const int n_tokens =
-      worstCase ? std::min<int>(batch.n_tokens, NMT_MAX_DECODERS) : batch.n_tokens;
+  const int n_tokens = worstCase
+                           ? std::min<int>(batch.n_tokens, NMT_MAX_DECODERS)
+                           : batch.n_tokens;
   // const int n_encoder_ctx = state.exp_n_encoder_ctx > 0 ?
   // state.exp_n_encoder_ctx : hparams.n_encoder_ctx;
   const int n_encoder_ctx = state.tokens_to_process;
@@ -703,18 +704,8 @@ bool nmtDecodeGraph(nmt_context& ctx, nmt_batch& batch, nmt_state& state) {
 
   ggml_tensor* kq_mask = ggml_graph_get_tensor(gf, "KQ_mask");
   if (kq_mask != nullptr) {
-    const int n_kv = static_cast<int>(kq_mask->ne[0]);
-    std::vector<float> mask(static_cast<size_t>(n_kv) * n_tokens, -INFINITY);
-    for (int i = 0; i < n_tokens; ++i) {
-      const nmt_seq_id seq_id = batch.seq_id[i][0];
-      const nmt_pos pos = batch.pos[i];
-      for (int j = 0; j < n_kv; ++j) {
-        const auto& cell = kv_self.cells[j];
-        if (cell.pos >= 0 && cell.pos <= pos && cell.has_seq_id(seq_id)) {
-          mask[static_cast<size_t>(i) * n_kv + j] = 0.0F;
-        }
-      }
-    }
+    std::vector<float> mask;
+    nmtKvCacheBuildMask(kv_self, batch, static_cast<int>(kq_mask->ne[0]), mask);
     ggml_backend_tensor_set(
         kq_mask, mask.data(), 0, sizeof(float) * mask.size());
   }

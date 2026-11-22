@@ -10,10 +10,10 @@
 #include <tuple>
 #include <vector>
 
+#include "inference-addon-cpp/Logger.hpp"
 #include "nmt.hpp"
 #include "nmt_graph_decoder.hpp"
 #include "nmt_state_backend.hpp"
-#include "inference-addon-cpp/Logger.hpp"
 
 struct beam_candidate {
   std::vector<nmt_vocab::id> tokens;
@@ -135,9 +135,11 @@ int nmtDecodeBeamSearch(
 
     auto score_beam = [&](int beam_idx) {
       const auto& beam = beams[beam_idx];
-      const auto row_begin = all_logits.begin() +
+      const auto row_begin =
+          all_logits.begin() +
           static_cast<std::ptrdiff_t>(batch_row[beam_idx]) * vocab_size;
-      std::vector<float> next_token_logits_vec(row_begin, row_begin + vocab_size);
+      std::vector<float> next_token_logits_vec(
+          row_begin, row_begin + vocab_size);
 
       // Apply penalties and filters
       if (ctx->model.config.repetition_penalty > 0.0) {
@@ -222,26 +224,34 @@ int nmtDecodeBeamSearch(
         const float logprob = static_cast<float>(
             static_cast<double>(next_token_logits_vec[token_id]) - logsumexp);
         float cumulative_score = beam.cumulative_score + logprob;
-        out.emplace_back(normalized_score, cumulative_score, beam_idx, token_id);
+        out.emplace_back(
+            normalized_score, cumulative_score, beam_idx, token_id);
       }
     };
 
-    std::vector<std::thread> workers;
-    int first_live = -1;
+    std::vector<int> live_beams;
     for (int beam_idx = 0; beam_idx < static_cast<int>(beams.size());
          ++beam_idx) {
-      if (beams[beam_idx].finished) {
-        continue;
-      }
-      if (first_live < 0) {
-        first_live = beam_idx;
-      } else {
-        workers.emplace_back(score_beam, beam_idx);
+      if (!beams[beam_idx].finished) {
+        live_beams.push_back(beam_idx);
       }
     }
-    if (first_live >= 0) {
-      score_beam(first_live);
+    // At most one thread per core; this thread takes the first share.
+    const int n_workers = std::max(
+        1,
+        std::min(
+            static_cast<int>(live_beams.size()),
+            static_cast<int>(std::thread::hardware_concurrency())));
+    auto score_share = [&](int worker) {
+      for (size_t k = worker; k < live_beams.size(); k += n_workers) {
+        score_beam(live_beams[k]);
+      }
+    };
+    std::vector<std::thread> workers;
+    for (int worker = 1; worker < n_workers; ++worker) {
+      workers.emplace_back(score_share, worker);
     }
+    score_share(0);
     for (auto& worker : workers) {
       worker.join();
     }
@@ -308,23 +318,16 @@ int nmtDecodeBeamSearch(
     }
 
     // Give each live beam a sequence id in [0, beamSize) that holds its
-    // parent's cells. Copy into temporary ids first, since a parent can have
-    // several children and its id may be reused by another beam.
-    int n_live = 0;
+    // parent's cells.
+    std::vector<nmt_seq_id> parent_seq_ids;
     for (auto& beam : new_beams) {
       if (beam.finished || beam.seq_id < 0) {
         continue;
       }
-      nmtKvCacheSeqCp(state.kv_self, beam.seq_id, beamSize + n_live);
-      beam.seq_id = n_live++;
+      parent_seq_ids.push_back(beam.seq_id);
+      beam.seq_id = static_cast<int>(parent_seq_ids.size()) - 1;
     }
-    for (int seq = 0; seq < beamSize; ++seq) {
-      nmtKvCacheSeqRm(state.kv_self, seq);
-    }
-    for (int seq = 0; seq < n_live; ++seq) {
-      nmtKvCacheSeqCp(state.kv_self, beamSize + seq, seq);
-      nmtKvCacheSeqRm(state.kv_self, beamSize + seq);
-    }
+    nmtKvCacheReassignSeqs(state.kv_self, parent_seq_ids, beamSize);
 
     beams = std::move(new_beams);
   }

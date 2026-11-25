@@ -3,6 +3,9 @@ name: bench
 on:
   workflow_dispatch:
     inputs:
+      fabric_ref:
+        description: qvac-fabric-llm.cpp commit to build ggml from
+        default: 72f6dfa65c04401ea68d9414488e2af8d00545a9
       ggml_patch:
         description: patch file under patches/ to apply to ggml, or none
         default: none
@@ -43,7 +46,7 @@ jobs:
       - name: ggml source (tetherto/qvac-fabric-llm.cpp at the commit used locally)
         run: |
           git init -q fabric
-          git -C fabric fetch -q --depth 1 https://github.com/tetherto/qvac-fabric-llm.cpp 72f6dfa65c04401ea68d9414488e2af8d00545a9
+          for i in 1 2 3 4 5; do git -C fabric fetch -q --depth 1 https://github.com/tetherto/qvac-fabric-llm.cpp ${{ inputs.fabric_ref || '72f6dfa65c04401ea68d9414488e2af8d00545a9' }} && break; sleep $((i*10)); done
           git -C fabric checkout -q FETCH_HEAD
           if [ "${{ inputs.ggml_patch || 'none' }}" != none ]; then git -C fabric apply "$PWD/patches/${{ inputs.ggml_patch }}" && echo "applied ${{ inputs.ggml_patch }}"; fi
 
